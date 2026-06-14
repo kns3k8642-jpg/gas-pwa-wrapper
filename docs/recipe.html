@@ -123,6 +123,20 @@
       z-index: 10;
     }
 
+    /* スワイプ遷移用スタイル */
+    .view.swiping {
+      display: flex !important;
+      transition: none !important;
+      will-change: transform, opacity;
+    }
+
+    .view.transitioning {
+      display: flex !important;
+      transition: transform 0.35s cubic-bezier(0.15, 0.85, 0.35, 1) !important;
+      will-change: transform, opacity;
+    }
+
+
     /* アプリ入場制限（アクセスコード）＆簡易ログインは絶対配置で最前面 */
     #view-access-code,
     #view-login {
@@ -2944,93 +2958,244 @@
       });
 
       // -------------------------------------------------------
-      // エッジスワイプによるナビゲーション（iOSネイティブ風）
-      // ・画面左端 50px 以内から右スワイプ → 戻る
-      // ・画面右端 50px 以内から左スワイプ → 進む
-      // ・縦スクロールが優先されている間はスワイプ判定をキャンセル
+      // シームレスなスワイプナビゲーション（インタラクティブ遷移）
+      // ・画面端以外でのタブ間左右スワイプ（並行スライド）
+      // ・画面左端からの右スワイプによる詳細・管理画面からの戻り（アンカバー効果）
       // -------------------------------------------------------
-      (function initEdgeSwipe() {
-        // ナビバーのタブ順（data-view 属性と対応）
+      (function initSwipeNavigation() {
         const TAB_ORDER = ['home', 'favorites', 'shopping-list', 'history', 'settings'];
 
-        // スワイプ検知の端から判定する幅 (px)
-        const EDGE_WIDTH = 50;
-        // スワイプとして認識するための最小水平移動量 (px)
-        const MIN_SWIPE_X = 50;
-        // 縦方向の動きがこれを超えたら縦スクロールと判定してキャンセル
-        const MAX_SWIPE_Y = 40;
+        // 設定値
+        const EDGE_WIDTH = 50;       // エッジ判定の幅 (詳細画面・管理画面用)
+        const SWIPE_THRESHOLD = 0.25; // 遷移を確定する移動距離の割合（画面幅に対する比率）
+        const FLICK_VELOCITY = 0.5;  // フリックと判定する速度しきい値 (px/ms)
 
-        let touchStartX = 0;
-        let touchStartY = 0;
-        let swipeEdge = null;   // 'left' | 'right' | null
-        let cancelled = false;  // 縦スクロールでキャンセルされたか
+        let startX = 0;
+        let startY = 0;
+        let startTime = 0;
+        let diffX = 0;
+        
+        let isSwiping = false;        // スワイプが開始（確定）したか
+        let isScrollCancelled = false; // 縦スクロールと判定されキャンセルされたか
+        
+        let currentViewId = '';
+        let targetViewId = '';
+        let currentEl = null;
+        let targetEl = null;
+        let transitionType = '';      // 'slide' (並行スライド) | 'uncover' (詳細から戻る)
+        let isEdgeStart = false;      // タッチがエッジから始まったか
 
         document.addEventListener('touchstart', (e) => {
-          // ボトムシート系のオーバーレイが開いている場合はスキップ
+          // モーダルやフィルターオーバーレイが開いている場合はスキップ
           if (document.querySelector('.filter-overlay.active')) return;
-
-          const touch = e.changedTouches[0];
-          touchStartX = touch.clientX;
-          touchStartY = touch.clientY;
-          cancelled = false;
-          swipeEdge = null;
-
-          const screenW = window.innerWidth;
-          if (touchStartX <= EDGE_WIDTH) {
-            swipeEdge = 'left';
-          } else if (touchStartX >= screenW - EDGE_WIDTH) {
-            swipeEdge = 'right';
+          
+          // 特定の無視すべき要素内でのタッチは無視（input, textarea, select, button 等）
+          const target = e.target;
+          if (target.closest('input, textarea, select, button, .nav-item, .clear-btn, [role="button"]')) {
+            return;
           }
+
+          const touch = e.touches[0];
+          startX = touch.clientX;
+          startY = touch.clientY;
+          startTime = performance.now();
+          diffX = 0;
+          
+          isSwiping = false;
+          isScrollCancelled = false;
+          
+          const screenW = window.innerWidth;
+          isEdgeStart = (startX <= EDGE_WIDTH || startX >= screenW - EDGE_WIDTH);
+          
+          currentViewId = localStorage.getItem('currentView') || 'home';
         }, { passive: true });
 
         document.addEventListener('touchmove', (e) => {
-          if (!swipeEdge || cancelled) return;
-          const touch = e.changedTouches[0];
-          const diffY = Math.abs(touch.clientY - touchStartY);
-          // 縦方向の動きが大きければ縦スクロールと判断してキャンセル
-          if (diffY > MAX_SWIPE_Y) {
-            cancelled = true;
-          }
-        }, { passive: true });
+          if (isScrollCancelled) return;
 
-        document.addEventListener('touchend', (e) => {
-          if (!swipeEdge || cancelled) return;
+          const touch = e.touches[0];
+          diffX = touch.clientX - startX;
+          const diffY = touch.clientY - startY;
 
-          const touch = e.changedTouches[0];
-          const diffX = touch.clientX - touchStartX;
-          const absDiffX = Math.abs(diffX);
+          // スワイプ方向の判定（初期判定）
+          if (!isSwiping) {
+            const absX = Math.abs(diffX);
+            const absY = Math.abs(diffY);
+            
+            // 動きが小さいうちは判定しない
+            if (absX < 8 && absY < 8) return;
 
-          if (absDiffX < MIN_SWIPE_X) return;
-
-          const currentView = localStorage.getItem('currentView') || 'home';
-
-          // 左端 → 右スワイプ：「戻る」動作
-          if (swipeEdge === 'left' && diffX > 0) {
-            if (currentView === 'detail') {
-              // 詳細画面はホームビューに戻る
-              const lastView = localStorage.getItem('lastHomeView') || 'home';
-              navigateTo(lastView);
-            } else if (currentView === 'admin') {
-              // 管理画面は設定に戻る
-              navigateTo('settings');
+            if (absY > absX) {
+              // 縦方向の動きが勝っている場合は縦スクロールとみなしてこのセッションはキャンセル
+              isScrollCancelled = true;
+              return;
             } else {
-              // タブ画面は左隣のタブへ
-              const idx = TAB_ORDER.indexOf(currentView);
-              if (idx > 0) {
-                navigateTo(TAB_ORDER[idx - 1]);
+              // 横方向の動きが勝っているため、スワイプナビゲーションを開始
+              targetViewId = '';
+              transitionType = '';
+
+              if (currentViewId === 'detail') {
+                // 詳細画面からは「左端からの右スワイプ（エッジスワイプ）」のみ許可
+                if (diffX > 0 && isEdgeStart && startX <= EDGE_WIDTH) {
+                  targetViewId = localStorage.getItem('lastHomeView') || 'home';
+                  transitionType = 'uncover';
+                }
+              } else if (currentViewId === 'admin') {
+                // 管理画面からは「左端からの右スワイプ（エッジスワイプ）」のみ設定へ戻る
+                if (diffX > 0 && isEdgeStart && startX <= EDGE_WIDTH) {
+                  targetViewId = 'settings';
+                  transitionType = 'uncover';
+                }
+              } else {
+                // タブ画面同士の遷移（画面のどこからでもスワイプ可能）
+                const currentIdx = TAB_ORDER.indexOf(currentViewId);
+                if (currentIdx !== -1) {
+                  if (diffX > 0) {
+                    // 右スワイプ（左のタブへ）
+                    if (currentIdx > 0) {
+                      targetViewId = TAB_ORDER[currentIdx - 1];
+                      transitionType = 'slide';
+                    }
+                  } else {
+                    // 左スワイプ（右のタブへ）
+                    if (currentIdx < TAB_ORDER.length - 1) {
+                      targetViewId = TAB_ORDER[currentIdx + 1];
+                      transitionType = 'slide';
+                    }
+                  }
+                }
+              }
+
+              // 遷移先が見つからない場合はスワイプをキャンセル
+              if (!targetViewId) {
+                isScrollCancelled = true;
+                return;
+              }
+
+              // スワイプ開始を確定
+              isSwiping = true;
+              currentEl = document.getElementById('view-' + currentViewId);
+              targetEl = document.getElementById('view-' + targetViewId);
+
+              if (currentEl && targetEl) {
+                // スワイプ中のCSSクラスを付与
+                currentEl.classList.add('swiping');
+                targetEl.classList.add('swiping');
+                
+                const screenW = window.innerWidth;
+                if (transitionType === 'slide') {
+                  // 並行スライド
+                  currentEl.style.zIndex = '10';
+                  targetEl.style.zIndex = '11';
+                  targetEl.style.transform = `translateX(${diffX > 0 ? -screenW : screenW}px)`;
+                } else if (transitionType === 'uncover') {
+                  // 詳細から戻る（アンカバー）
+                  currentEl.style.zIndex = '12';
+                  targetEl.style.zIndex = '10';
+                  targetEl.style.transform = `translateX(${-screenW * 0.3}px)`;
+                  targetEl.style.opacity = '0.5';
+                }
               }
             }
           }
 
-          // 右端 → 左スワイプ：「進む」動作（タブ画面のみ）
-          if (swipeEdge === 'right' && diffX < 0) {
-            const idx = TAB_ORDER.indexOf(currentView);
-            if (idx >= 0 && idx < TAB_ORDER.length - 1) {
-              navigateTo(TAB_ORDER[idx + 1]);
+          // ドラッグ中のリアルタイム描画
+          if (isSwiping && currentEl && targetEl) {
+            // スクロールのデフォルト挙動を防止
+            if (e.cancelable) e.preventDefault();
+
+            const screenW = window.innerWidth;
+            
+            if (transitionType === 'slide') {
+              // 並行スライド：指の動きに合わせて両方が移動
+              currentEl.style.transform = `translateX(${diffX}px)`;
+              targetEl.style.transform = `translateX(${diffX + (diffX > 0 ? -screenW : screenW}px)`;
+            } else if (transitionType === 'uncover') {
+              // アンカバー：引っ張る側 (currentEl) は等倍、後ろ側 (targetEl) は 0.3 倍の速度で追従
+              if (diffX > 0) {
+                currentEl.style.transform = `translateX(${diffX}px)`;
+                
+                const progress = Math.min(diffX / screenW, 1);
+                targetEl.style.transform = `translateX(${-screenW * 0.3 * (1 - progress)}px)`;
+                targetEl.style.opacity = (0.5 + progress * 0.5).toString();
+              }
             }
           }
+        }, { passive: false });
 
-          swipeEdge = null;
+        document.addEventListener('touchend', (e) => {
+          if (!isSwiping) return;
+          
+          isSwiping = false;
+          
+          const screenW = window.innerWidth;
+          const duration = performance.now() - startTime;
+          const velocity = Math.abs(diffX) / duration; // px/ms
+          
+          // 遷移を確定するかどうかの判定
+          const isFlick = velocity > FLICK_VELOCITY && Math.abs(diffX) > 30;
+          const isPassedThreshold = Math.abs(diffX) > screenW * SWIPE_THRESHOLD;
+          
+          // スワイプした方向と、遷移目標の方向が一致しているか
+          const isCorrectDirection = (diffX > 0 && transitionType === 'uncover') || 
+                                     (diffX > 0 && transitionType === 'slide' && TAB_ORDER.indexOf(targetViewId) < TAB_ORDER.indexOf(currentViewId)) ||
+                                     (diffX < 0 && transitionType === 'slide' && TAB_ORDER.indexOf(targetViewId) > TAB_ORDER.indexOf(currentViewId));
+
+          const shouldCommit = isCorrectDirection && (isPassedThreshold || isFlick);
+
+          if (currentEl && targetEl) {
+            currentEl.classList.remove('swiping');
+            targetEl.classList.remove('swiping');
+            
+            currentEl.classList.add('transitioning');
+            targetEl.classList.add('transitioning');
+
+            if (shouldCommit) {
+              // 遷移確定時の最終位置
+              if (transitionType === 'slide') {
+                currentEl.style.transform = `translateX(${diffX > 0 ? screenW : -screenW}px)`;
+                targetEl.style.transform = 'translateX(0)';
+              } else if (transitionType === 'uncover') {
+                currentEl.style.transform = `translateX(${screenW}px)`;
+                targetEl.style.transform = 'translateX(0)';
+                targetEl.style.opacity = '1';
+              }
+              
+              setTimeout(() => {
+                cleanupStyles();
+                navigateTo(targetViewId);
+              }, 350);
+            } else {
+              // キャンセル（スナップバック）時の元の位置に戻す
+              if (transitionType === 'slide') {
+                currentEl.style.transform = 'translateX(0)';
+                targetEl.style.transform = `translateX(${diffX > 0 ? -screenW : screenW}px)`;
+              } else if (transitionType === 'uncover') {
+                currentEl.style.transform = 'translateX(0)';
+                targetEl.style.transform = `translateX(${-screenW * 0.3}px)`;
+                targetEl.style.opacity = '0.5';
+              }
+              
+              setTimeout(() => {
+                cleanupStyles();
+                targetEl.style.display = 'none';
+              }, 350);
+            }
+          }
+          
+          function cleanupStyles() {
+            if (currentEl) {
+              currentEl.classList.remove('transitioning');
+              currentEl.style.transform = '';
+              currentEl.style.zIndex = '';
+            }
+            if (targetEl) {
+              targetEl.classList.remove('transitioning');
+              targetEl.style.transform = '';
+              targetEl.style.opacity = '';
+              targetEl.style.zIndex = '';
+            }
+          }
         }, { passive: true });
       })();
     }
