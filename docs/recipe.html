@@ -3109,7 +3109,7 @@
             if (transitionType === 'slide') {
               // 並行スライド：指の動きに合わせて両方が移動
               currentEl.style.transform = `translateX(${diffX}px)`;
-              targetEl.style.transform = `translateX(${diffX + (diffX > 0 ? -screenW : screenW}px)`;
+              targetEl.style.transform = `translateX(${diffX + (diffX > 0 ? -screenW : screenW)}px)`;
             } else if (transitionType === 'uncover') {
               // アンカバー：引っ張る側 (currentEl) は等倍、後ろ側 (targetEl) は 0.3 倍の速度で追従
               if (diffX > 0) {
