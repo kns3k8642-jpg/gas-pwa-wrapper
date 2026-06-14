@@ -659,9 +659,10 @@ function syncDriveImages() {
     const name = file.getName().toLowerCase(); // 例: mh_1.jpg
     scanCount++;
     Logger.log('Found file in Drive: ' + file.getName());
-    const match = name.match(/^(mh_\d+|rgsk_\d+)\.(jpg|jpeg|png)$/i);
+    // recipeId のプレフィックス全種類 (mh, rgkm, rgsk, tfal, ks) に対応
+    const match = name.match(/^(mh_\d+|rgkm_\d+|rgsk_\d+|tfal_\d+|ks_\d+)\.(jpg|jpeg|png)$/i);
     if (match) {
-      const recipeId = match[1].toUpperCase();
+      const recipeId = match[1].toLowerCase(); // スプレッドシートのrecipeIdに合わせて小文字で統一
       // 外部からリンクで表示できるよう共有設定を「リンクを知っている全員に閲覧許可」に変更
       file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
       fileMap[recipeId] = {
@@ -686,7 +687,7 @@ function syncDriveImages() {
   let updateCount = 0;
   for (let i = 0; i < recipes.length; i++) {
     const recipe = recipes[i];
-    const rId = recipe.recipeId.toUpperCase();
+    const rId = (recipe.recipeId || '').toLowerCase(); // fileMapのキーと大文字小文字を合わせる
     if (fileMap[rId]) {
       const row = i + 2;
       const fileInfo = fileMap[rId];
@@ -703,4 +704,130 @@ function syncDriveImages() {
   }
   
   Logger.log('Successfully synchronized ' + updateCount + ' images from Drive.');
+}
+
+// -------------------------------------------------------------
+// 5. TSVファイルからレシピデータを一括インポート（Upsert）
+// -------------------------------------------------------------
+/**
+ * Googleドライブ上の TSV ファイルから Recipes シートへ一括インポートする。
+ * 同じ recipeId がすでにある行は更新（Upsert）、なければ末尾に追加する。
+ *
+ * 【使い方】
+ * 1. インポートしたい TSV ファイルを Googleドライブにアップロードし、ファイルIDをコピーする。
+ * 2. 下記 TSV_FILE_ID 定数に貼り付けて保存する。
+ * 3. GASエディタでこの関数 importRecipesFromTsv を選択して「実行」する。
+ */
+function importRecipesFromTsv() {
+  // ★ここにドライブにアップロードした TSV のファイルIDを設定する★
+  const TSV_FILE_ID = PropertiesService.getScriptProperties().getProperty('TSV_FILE_ID') || '';
+  if (!TSV_FILE_ID) {
+    throw new Error('スクリプトプロパティ "TSV_FILE_ID" にインポートしたい TSV ファイルのIDを設定してください。');
+  }
+
+  // ドライブからTSVファイルを取得
+  const file = DriveApp.getFileById(TSV_FILE_ID);
+  const content = file.getBlob().getDataAsString('UTF-8');
+  const lines = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+
+  if (lines.length < 2) {
+    throw new Error('TSV ファイルにデータ行がありません。');
+  }
+
+  // ヘッダー行のパース
+  const tsvHeaders = parseTsvLine(lines[0]);
+
+  // Recipesシートの取得
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('Recipes');
+  if (!sheet) throw new Error('Recipes シートが見つかりません。');
+
+  const sheetHeaders = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const recipeIdColIdx = sheetHeaders.indexOf('recipeId'); // 0-indexed
+
+  // 既存データのrecipeId -> 行番号マップを作成
+  const existingMap = {}; // { recipeId: rowNumber(1-indexed, header=1) }
+  const lastRow = sheet.getLastRow();
+  if (lastRow > 1) {
+    const existingIds = sheet.getRange(2, recipeIdColIdx + 1, lastRow - 1, 1).getValues();
+    existingIds.forEach((row, idx) => {
+      if (row[0]) existingMap[row[0]] = idx + 2; // 2行目からデータ
+    });
+  }
+
+  let insertCount = 0;
+  let updateCount = 0;
+  const errors = [];
+
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+
+    const tsvRow = parseTsvLine(line);
+    if (tsvRow.length === 0) continue;
+
+    // TSVの各列をsheetHeadersの順に並べ替える
+    const rowData = sheetHeaders.map(header => {
+      const tsvIdx = tsvHeaders.indexOf(header);
+      return tsvIdx >= 0 ? (tsvRow[tsvIdx] || '') : '';
+    });
+
+    const recipeId = rowData[recipeIdColIdx];
+    if (!recipeId) {
+      errors.push('行 ' + (i + 1) + ': recipeId が空のためスキップ');
+      continue;
+    }
+
+    try {
+      if (existingMap[recipeId]) {
+        // 既存行を更新（imageFileId/imageUrl 等の既存値は保持するため recipeId~notes のみ上書き）
+        const targetRow = existingMap[recipeId];
+        sheet.getRange(targetRow, 1, 1, rowData.length).setValues([rowData]);
+        updateCount++;
+      } else {
+        // 新規行を追加
+        sheet.appendRow(rowData);
+        existingMap[recipeId] = sheet.getLastRow(); // 追加後の行番号を記録
+        insertCount++;
+      }
+    } catch (e) {
+      errors.push('行 ' + (i + 1) + ' (' + recipeId + '): ' + e.message);
+    }
+  }
+
+  const summary = [
+    'インポート完了: 新規追加=' + insertCount + ', 更新=' + updateCount,
+    errors.length > 0 ? 'エラー:\n' + errors.join('\n') : ''
+  ].filter(Boolean).join('\n');
+
+  Logger.log(summary);
+  SpreadsheetApp.getUi().alert(summary);
+}
+
+/**
+ * TSV の1行をフィールド配列に分割するパーサー（ダブルクォート対応）
+ */
+function parseTsvLine(line) {
+  const fields = [];
+  let current = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"';
+        i++; // エスケープされたダブルクォート
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (ch === '\t' && !inQuotes) {
+      fields.push(current);
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  fields.push(current);
+  return fields;
 }
