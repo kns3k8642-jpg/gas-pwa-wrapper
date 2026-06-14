@@ -1,0 +1,3250 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>レシピ参照 PWA</title>
+
+  <!-- PWA meta tags -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="レシピ参照">
+  <link rel="apple-touch-icon" href="assets/recipe_icon_192.png">
+  <link rel="manifest" href="recipe_manifest.json">
+
+  <!-- Google Fonts (Outfit & Noto Sans JP) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&family=Outfit:wght@400;600;800&display=swap"
+    rel="stylesheet">
+
+  <style>
+    :root {
+      /* HSLベースの温かみのあるカラーパレット */
+      --primary-h: 24;
+      --primary-s: 95%;
+      --primary-l: 53%;
+      /* #f97316 (Orange 500) */
+
+      --primary: hsl(var(--primary-h), var(--primary-s), var(--primary-l));
+      --primary-hover: hsl(var(--primary-h), var(--primary-s), calc(var(--primary-l) - 8%));
+      --primary-light: hsl(var(--primary-h), var(--primary-s), 95%);
+
+      --bg: #fdf8f5;
+      --card-bg: #ffffff;
+      --text-main: #374151;
+      /* Gray 700 */
+      --text-muted: #6b7280;
+      /* Gray 500 */
+      --text-light: #9ca3af;
+      /* Gray 400 */
+      --border: #f3f4f6;
+      --danger: #ef4444;
+      --success: #10b981;
+      --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+      --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+      --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -2px rgba(0, 0, 0, 0.04);
+      --radius: 16px;
+      --font-outfit: 'Outfit', 'Noto Sans JP', sans-serif;
+      --font-noto: 'Noto Sans JP', sans-serif;
+
+      /* iOSセーフエリア */
+      --safe-top: env(safe-area-inset-top, 0px);
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #111827;
+        /* Gray 900 */
+        --card-bg: #1f2937;
+        /* Gray 800 */
+        --text-main: #f3f4f6;
+        /* Gray 100 */
+        --text-muted: #9ca3af;
+        /* Gray 400 */
+        --text-light: #6b7280;
+        /* Gray 500 */
+        --border: #374151;
+        /* Gray 700 */
+        --primary-light: hsl(var(--primary-h), var(--primary-s), 15%);
+        --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+        --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+        --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.4);
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+      outline: none;
+    }
+
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      background-color: var(--bg);
+      color: var(--text-main);
+      font-family: var(--font-noto);
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* 画面切り替えのトランジション用 */
+    .view {
+      display: none;
+      flex-direction: column;
+      width: 100%;
+      height: 100%;
+      position: absolute;
+      top: 0;
+      left: 0;
+      opacity: 0;
+      transform: translateY(10px);
+      transition: opacity 0.3s ease, transform 0.3s ease;
+      overflow-y: auto;
+      padding-top: calc(var(--safe-top) + 16px);
+      padding-bottom: calc(var(--safe-bottom) + 80px);
+      box-sizing: border-box;
+    }
+
+    .view.active {
+      display: flex;
+      opacity: 1;
+      transform: translateY(0);
+      z-index: 10;
+    }
+
+    /* アプリ入場制限（アクセスコード）＆簡易ログインは絶対配置で最前面 */
+    #view-access-code,
+    #view-login {
+      padding-bottom: var(--safe-bottom);
+      justify-content: center;
+      align-items: center;
+      background-color: var(--bg);
+    }
+
+    /* UI共通パーツ */
+    .container {
+      width: 100%;
+      max-width: 480px;
+      margin: 0 auto;
+      padding: 0 16px;
+    }
+
+    /* プレミアムなガラス効果カード */
+    .glass-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+      box-shadow: var(--shadow-lg);
+      width: 100%;
+    }
+
+    h1,
+    h2,
+    h3,
+    h4 {
+      margin: 0 0 12px 0;
+      font-weight: 700;
+      line-height: 1.25;
+    }
+
+    .app-title {
+      font-family: var(--font-outfit);
+      font-size: 2rem;
+      font-weight: 800;
+      background: linear-gradient(135deg, var(--primary), #ef4444);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 24px;
+      text-align: center;
+    }
+
+    .form-group {
+      margin-bottom: 16px;
+      width: 100%;
+    }
+
+    .form-group label {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--text-muted);
+    }
+
+    .input-text {
+      width: 100%;
+      padding: 12px 16px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      font-size: 1rem;
+      background-color: var(--bg);
+      color: var(--text-main);
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .input-text:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px var(--primary-light);
+    }
+
+    .btn {
+      width: 100%;
+      padding: 14px;
+      border: none;
+      border-radius: 12px;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      justify-content: center;
+      align-items: center;
+      gap: 8px;
+      transition: background-color 0.2s ease, transform 0.1s ease;
+    }
+
+    .btn-primary {
+      background-color: var(--primary);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background-color: var(--primary-hover);
+    }
+
+    .btn-primary:active {
+      transform: scale(0.98);
+    }
+
+    .btn-secondary {
+      background-color: var(--border);
+      color: var(--text-main);
+    }
+
+    .btn-outline {
+      background-color: transparent;
+      border: 2px solid var(--border);
+      color: var(--text-main);
+    }
+
+    .btn-danger {
+      background-color: var(--danger);
+      color: white;
+    }
+
+    /* エフタリスト・ナビゲーションバー */
+    .nav-bar {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: var(--card-bg);
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: space-around;
+      padding-top: 8px;
+      padding-bottom: calc(var(--safe-bottom) + 8px);
+      box-shadow: 0 -4px 6px -1px rgba(0, 0, 0, 0.03);
+      z-index: 100;
+    }
+
+    .nav-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      background: none;
+      border: none;
+      color: var(--text-light);
+      font-size: 0.75rem;
+      font-weight: 500;
+      cursor: pointer;
+      flex: 1;
+      gap: 4px;
+      transition: color 0.2s ease;
+    }
+
+    .nav-item.active {
+      color: var(--primary);
+    }
+
+    .nav-item svg {
+      width: 24px;
+      height: 24px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    /* ヘッダー */
+    .header {
+      background-color: var(--card-bg);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      padding-top: calc(var(--safe-top) + 8px);
+      padding-bottom: 12px;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .header-content {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 40px;
+    }
+
+    .header-title {
+      font-size: 1.2rem;
+      font-weight: 700;
+      margin: 0;
+    }
+
+    .header-btn {
+      background: none;
+      border: none;
+      color: var(--text-main);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      transition: background-color 0.2s ease;
+    }
+
+    .header-btn:active {
+      background-color: var(--border);
+    }
+
+    /* レシピ一覧（ホーム画面） */
+    .search-section {
+      margin-top: 16px;
+      margin-bottom: 16px;
+      display: flex;
+      gap: 8px;
+    }
+
+    .filter-pills {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding-bottom: 8px;
+      margin-bottom: 16px;
+      scrollbar-width: none;
+    }
+
+    .filter-pills::-webkit-scrollbar {
+      display: none;
+    }
+
+    .pill {
+      white-space: nowrap;
+      padding: 6px 14px;
+      border-radius: 20px;
+      background-color: var(--card-bg);
+      border: 1px solid var(--border);
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .pill.active {
+      background-color: var(--primary);
+      color: white;
+      border-color: var(--primary);
+    }
+
+    /* レシピカードグリッド */
+    .recipe-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+
+    @media (max-width: 350px) {
+      .recipe-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .recipe-card {
+      background-color: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      box-shadow: var(--shadow-sm);
+      display: flex;
+      flex-direction: column;
+      cursor: pointer;
+      position: relative;
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .recipe-card:active {
+      transform: scale(0.98);
+      box-shadow: var(--shadow);
+    }
+
+    .recipe-card-img {
+      width: 100%;
+      height: 120px;
+      object-fit: cover;
+      background-color: var(--border);
+    }
+
+    .recipe-card-content {
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      flex-grow: 1;
+    }
+
+    .recipe-card-title {
+      font-size: 0.95rem;
+      font-weight: 700;
+      margin-bottom: 6px;
+      line-height: 1.3;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      height: 2.6em;
+    }
+
+    .recipe-card-meta {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      margin-top: auto;
+    }
+
+    .recipe-card-fav {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      background-color: rgba(255, 255, 255, 0.9);
+      border: none;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-muted);
+      cursor: pointer;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .recipe-card-fav.active {
+      color: var(--danger);
+    }
+
+    /* レシピ詳細画面 */
+    .detail-img {
+      width: 100%;
+      height: 240px;
+      object-fit: cover;
+      background-color: var(--border);
+      border-radius: var(--radius);
+      margin-bottom: 16px;
+    }
+
+    .detail-title {
+      font-size: 1.5rem;
+      font-weight: 800;
+      margin-bottom: 8px;
+    }
+
+    .detail-meta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    .tag-badge {
+      font-size: 0.75rem;
+      padding: 4px 10px;
+      border-radius: 12px;
+      background-color: var(--border);
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+
+    .tag-badge-primary {
+      background-color: var(--primary-light);
+      color: var(--primary);
+    }
+
+    .section-divider {
+      height: 1px;
+      background-color: var(--border);
+      margin: 20px 0;
+    }
+
+    /* 倍率セレクター */
+    .multiplier-section {
+      background-color: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+    }
+
+    .multiplier-label {
+      font-size: 0.9rem;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+
+    .multiplier-select {
+      padding: 6px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background-color: var(--bg);
+      color: var(--text-main);
+      font-weight: bold;
+      font-size: 0.95rem;
+    }
+
+    /* 材料リスト */
+    .ingredient-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+
+    .ingredient-item {
+      display: flex;
+      justify-content: space-between;
+      padding: 10px 0;
+      border-bottom: 1px dashed var(--border);
+      font-size: 0.95rem;
+    }
+
+    .ingredient-item:last-child {
+      border-bottom: none;
+    }
+
+    .ingredient-name {
+      font-weight: 500;
+    }
+
+    .ingredient-qty {
+      font-weight: 700;
+      color: var(--primary);
+    }
+
+    /* 手順リスト */
+    .step-list {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .step-item {
+      display: flex;
+      gap: 12px;
+    }
+
+    .step-number {
+      width: 24px;
+      height: 24px;
+      background-color: var(--primary);
+      color: white;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.85rem;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    .step-text {
+      font-size: 0.95rem;
+      line-height: 1.5;
+      padding-top: 2px;
+    }
+
+    /* ボトムシート風フィルター */
+    .filter-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: rgba(0, 0, 0, 0.4);
+      z-index: 200;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+    }
+
+    .filter-overlay.active {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .filter-sheet {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      max-height: 80%;
+      background-color: var(--card-bg);
+      border-top-left-radius: 24px;
+      border-top-right-radius: 24px;
+      padding: 24px;
+      padding-bottom: calc(var(--safe-bottom) + 24px);
+      box-shadow: 0 -10px 25px -5px rgba(0, 0, 0, 0.1);
+      transform: translateY(100%);
+      transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      overflow-y: auto;
+    }
+
+    .filter-overlay.active .filter-sheet {
+      transform: translateY(0);
+    }
+
+    .filter-sheet-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+
+    .filter-section-title {
+      font-size: 0.9rem;
+      font-weight: 700;
+      color: var(--text-muted);
+      margin-bottom: 10px;
+      text-transform: uppercase;
+    }
+
+    .filter-options {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 20px;
+    }
+
+    /* オフラインバナー */
+    .offline-banner {
+      display: none;
+      background-color: var(--danger);
+      color: white;
+      text-align: center;
+      padding: 6px 12px;
+      font-size: 0.8rem;
+      font-weight: bold;
+      position: sticky;
+      top: 0;
+      z-index: 99;
+    }
+
+    /* 管理画面用の追加スタイル */
+    .draft-card {
+      border: 2px dashed var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      margin-bottom: 16px;
+      background-color: var(--card-bg);
+    }
+
+    .validation-error {
+      color: var(--danger);
+      font-size: 0.8rem;
+      margin-top: 4px;
+    }
+
+    .loading-spinner {
+      border: 4px solid var(--border);
+      border-top: 4px solid var(--primary);
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin: 20px auto;
+    }
+
+    @keyframes spin {
+      0% {
+        transform: rotate(0deg);
+      }
+
+      100% {
+        transform: rotate(360deg);
+      }
+    }
+
+    .toast {
+      position: fixed;
+      bottom: 90px;
+      left: 50%;
+      transform: translateX(-50%) translateY(100px);
+      background-color: var(--text-main);
+      color: var(--bg);
+      padding: 10px 20px;
+      border-radius: 30px;
+      font-size: 0.9rem;
+      font-weight: 500;
+      box-shadow: var(--shadow-lg);
+      z-index: 1000;
+      transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      white-space: nowrap;
+    }
+
+    .toast.show {
+      transform: translateX(-50%) translateY(0);
+    }
+
+    /* 買い物リスト画面用スタイル */
+    .shopping-section {
+      margin-top: 16px;
+      margin-bottom: 24px;
+    }
+
+    .shopping-category-header {
+      font-size: 0.95rem;
+      font-weight: 800;
+      color: var(--primary);
+      margin: 20px 0 10px 0;
+      padding-bottom: 6px;
+      border-bottom: 2px solid var(--primary-light);
+    }
+
+    .shopping-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px 16px;
+      margin-bottom: 8px;
+      box-shadow: var(--shadow-sm);
+      transition: all 0.2s ease;
+    }
+
+    .shopping-item-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-grow: 1;
+    }
+
+    .shopping-item-checkbox {
+      width: 20px;
+      height: 20px;
+      border: 2px solid var(--text-light);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .shopping-item-checkbox.checked {
+      background-color: var(--success);
+      border-color: var(--success);
+    }
+
+    .shopping-item-checkbox svg {
+      width: 12px;
+      height: 12px;
+      stroke: white;
+      stroke-width: 3;
+      display: none;
+    }
+
+    .shopping-item-checkbox.checked svg {
+      display: block;
+    }
+
+    .shopping-item-text-container {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .shopping-item-name {
+      font-size: 0.95rem;
+      font-weight: 500;
+      color: var(--text-main);
+      transition: all 0.2s ease;
+    }
+
+    .shopping-item.checked .shopping-item-name {
+      text-decoration: line-through;
+      color: var(--text-light);
+    }
+
+    .shopping-item-recipe {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .shopping-item-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .shopping-item-qty {
+      font-size: 0.9rem;
+      font-weight: 700;
+      color: var(--text-muted);
+    }
+
+    .shopping-item-delete {
+      background: none;
+      border: none;
+      color: var(--text-light);
+      cursor: pointer;
+      padding: 4px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background-color 0.2s ease, color 0.2s ease;
+    }
+
+    .shopping-item-delete:hover {
+      background-color: var(--border);
+      color: var(--danger);
+    }
+
+    /* 手動追加エリア */
+    .shopping-add-form {
+      display: flex;
+      gap: 8px;
+      margin-top: 20px;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 12px;
+      box-shadow: var(--shadow);
+    }
+
+    /* 一括アクション */
+    .shopping-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+      margin-top: 16px;
+    }
+
+    /* 買い物リスト追加ボトムシート */
+    .shopping-add-list {
+      max-height: 250px;
+      overflow-y: auto;
+      margin: 16px 0;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 8px;
+    }
+
+    .shopping-add-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 8px;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.95rem;
+    }
+
+    .shopping-add-item:last-child {
+      border-bottom: none;
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- オフライン警告バナー -->
+  <div id="offline-banner" class="offline-banner">オフラインモードで表示中（データはキャッシュから読み込まれています）</div>
+
+  <!-- トースト通知 -->
+  <div id="toast" class="toast">メッセージ</div>
+
+  <!-- 1. アクセスコード入力画面 -->
+  <div id="view-access-code" class="view">
+    <div class="container" style="max-width: 400px;">
+      <div class="glass-card" style="text-align: center;">
+        <div class="app-title">Recipe PWA</div>
+        <h2 style="font-size: 1.25rem;">アクセスコードの入力</h2>
+        <p style="color: var(--text-muted); font-size: 0.875rem; margin-bottom: 24px;">
+          アプリをご利用いただくには、共通のアクセスコードを入力してください。</p>
+
+        <div class="form-group" style="text-align: left;">
+          <input type="password" id="input-access-code" class="input-text" placeholder="アクセスコード"
+            style="text-align: center;">
+          <div id="error-access-code" class="validation-error" style="text-align: center; margin-top: 8px;"></div>
+        </div>
+
+        <button id="btn-submit-access-code" class="btn btn-primary" style="margin-top: 12px;">認証する</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. ユーザー設定（簡易ログイン）画面 -->
+  <div id="view-login" class="view">
+    <div class="container" style="max-width: 400px;">
+      <div class="glass-card" style="text-align: center;">
+        <div class="app-title">Recipe PWA</div>
+        <h2 style="font-size: 1.25rem;">ニックネームの登録</h2>
+        <p style="color: var(--text-muted); font-size: 0.875rem; margin-bottom: 24px;">
+          お気に入りや検索履歴を保存するための識別用ニックネームを入力してください。</p>
+
+        <div class="form-group" style="text-align: left;">
+          <input type="text" id="input-user-key" class="input-text" placeholder="例：こうた" style="text-align: center;">
+          <div id="error-login" class="validation-error" style="text-align: center; margin-top: 8px;"></div>
+        </div>
+
+        <button id="btn-submit-login" class="btn btn-primary" style="margin-top: 12px;">利用を開始する</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. ホーム（レシピ一覧）画面 -->
+  <div id="view-home" class="view">
+    <div class="header">
+      <div class="container header-content">
+        <h1 class="header-title" style="font-family: var(--font-outfit); font-weight: 800; color: var(--primary);">
+          RECIPE</h1>
+        <button id="btn-show-filter" class="header-btn">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="container">
+      <div class="search-section">
+        <input type="text" id="input-search" class="input-text" placeholder="食材、料理名で検索..." style="flex-grow: 1;">
+      </div>
+
+      <!-- クイックフィルタ用ピル -->
+      <div class="filter-pills" id="home-category-pills">
+        <button class="pill active" data-category="">すべて</button>
+        <!-- 動的に追加 -->
+      </div>
+
+      <h2 style="font-size: 1.1rem; margin-top: 8px; margin-bottom: 12px;" id="list-result-title">レシピ一覧</h2>
+
+      <div id="loading-recipes" class="loading-spinner"></div>
+      <div class="recipe-grid" id="recipes-container">
+        <!-- 動的にカードが挿入される -->
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. お気に入り画面 -->
+  <div id="view-favorites" class="view">
+    <div class="header">
+      <div class="container header-content">
+        <h1 class="header-title">お気に入り</h1>
+      </div>
+    </div>
+    <div class="container" style="margin-top: 16px;">
+      <div class="recipe-grid" id="fav-recipes-container">
+        <!-- 動的 -->
+      </div>
+      <div id="empty-favorites" style="text-align: center; color: var(--text-muted); margin-top: 40px; display: none;">
+        お気に入りに登録されたレシピはありません。
+      </div>
+    </div>
+  </div>
+
+  <!-- 5. 閲覧履歴画面 -->
+  <div id="view-history" class="view">
+    <div class="header">
+      <div class="container header-content">
+        <h1 class="header-title">閲覧履歴</h1>
+      </div>
+    </div>
+    <div class="container" style="margin-top: 16px;">
+      <div class="recipe-grid" id="history-recipes-container">
+        <!-- 動的 -->
+      </div>
+      <div id="empty-history" style="text-align: center; color: var(--text-muted); margin-top: 40px; display: none;">
+        閲覧履歴がありません。
+      </div>
+    </div>
+  </div>
+
+  <!-- 6. 設定画面 -->
+  <div id="view-settings" class="view">
+    <div class="header">
+      <div class="container header-content">
+        <h1 class="header-title">設定</h1>
+      </div>
+    </div>
+    <div class="container" style="margin-top: 20px;">
+      <div class="glass-card" style="margin-bottom: 20px;">
+        <h3 style="font-size: 1.1rem; margin-bottom: 16px;">ユーザー情報</h3>
+        <p><strong>現在のユーザー:</strong> <span id="settings-display-name">---</span></p>
+        <button id="btn-change-user" class="btn btn-secondary btn-sm"
+          style="padding: 8px 12px; font-size: 0.85rem; width: auto;">ニックネームを変更する</button>
+      </div>
+
+      <div class="glass-card" style="margin-bottom: 20px;">
+        <h3 style="font-size: 1.1rem; margin-bottom: 16px;">データ同期・キャッシュ</h3>
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 16px;">
+          オフライン用のキャッシュデータを削除し、サーバーから最新データを強制再取得します。</p>
+        <button id="btn-clear-cache" class="btn btn-outline"
+          style="padding: 10px 14px; font-size: 0.9rem;">キャッシュを再同期する</button>
+      </div>
+
+      <div class="glass-card" style="margin-bottom: 20px;" id="admin-entrance-card">
+        <h3 style="font-size: 1.1rem; margin-bottom: 12px;">管理者用機能</h3>
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 16px;">新規レシピの追加、Gemini画像解析機能は管理者PINが必要です。
+        </p>
+        <button id="btn-go-admin" class="btn btn-primary">管理画面を開く</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 買い物リスト画面 -->
+  <div id="view-shopping-list" class="view">
+    <div class="header">
+      <div class="container header-content">
+        <h1 class="header-title">買い物リスト</h1>
+        <button id="btn-shopping-clear-checked" class="header-btn" style="width: auto; padding: 0 12px; font-size: 0.85rem; color: var(--text-muted); border-radius: 20px;">
+          チェック済クリア
+        </button>
+      </div>
+    </div>
+    <div class="container" style="margin-top: 16px;">
+      <!-- 手動追加フォーム -->
+      <div class="shopping-add-form">
+        <input type="text" id="input-shopping-manual" class="input-text" placeholder="食材、買い物品を追加..." style="border:none; padding:8px 12px; background:transparent;">
+        <button id="btn-shopping-manual-add" class="btn btn-primary" style="width:40px; height:40px; padding:0; border-radius:12px; flex-shrink:0;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        </button>
+      </div>
+
+      <div id="shopping-list-container" class="shopping-section">
+        <!-- 動的 -->
+      </div>
+      
+      <div id="empty-shopping" style="text-align: center; color: var(--text-muted); margin-top: 40px; display: block;">
+        買い物リストは空です。
+      </div>
+
+      <div class="shopping-actions" id="shopping-actions-area" style="display: none; padding-bottom: 24px;">
+        <button id="btn-shopping-clear-all" class="btn btn-outline" style="font-size: 0.85rem; padding: 10px 16px; width: auto;">すべてクリア</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 7. レシピ詳細画面 -->
+  <div id="view-detail" class="view">
+    <div class="header">
+      <div class="container header-content">
+        <button id="btn-detail-back" class="header-btn">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <line x1="19" y1="12" x2="5" y2="12"></line>
+            <polyline points="12 19 5 12 12 5"></polyline>
+          </svg>
+        </button>
+        <h1 class="header-title" id="detail-header-title">レシピ詳細</h1>
+        <button id="btn-detail-fav" class="header-btn">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path
+              d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z">
+            </path>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="container" style="margin-top: 16px;">
+      <img id="detail-recipe-image" class="detail-img" src="assets/default_recipe.jpg" alt="料理画像">
+
+      <h1 class="detail-title" id="detail-recipe-title">レシピタイトル</h1>
+
+      <div class="detail-meta-row" id="detail-tags-container">
+        <!-- バッジ動的 -->
+      </div>
+
+      <p id="detail-recipe-summary"
+        style="color: var(--text-muted); font-size: 0.95rem; line-height: 1.5; margin-bottom: 20px;">説明文が入ります。</p>
+
+      <div class="section-divider"></div>
+
+      <!-- 分量倍率 -->
+      <div class="multiplier-section">
+        <span class="multiplier-label">分量の倍率変更</span>
+        <select id="select-multiplier" class="multiplier-select">
+          <option value="0.25">0.25倍</option>
+          <option value="0.5">0.5倍</option>
+          <option value="0.75">0.75倍</option>
+          <option value="1.0" selected>1.0倍 (標準)</option>
+          <option value="1.25">1.25倍</option>
+          <option value="1.5">1.5倍</option>
+          <option value="1.75">1.75倍</option>
+          <option value="2.0">2.0倍</option>
+          <option value="2.25">2.25倍</option>
+          <option value="2.5">2.5倍</option>
+          <option value="2.75">2.75倍</option>
+          <option value="3.0">3.0倍</option>
+        </select>
+      </div>
+
+      <h2 style="font-size: 1.2rem; margin-bottom: 12px;">材料 (<span id="detail-servings">2人分</span>)</h2>
+      <ul class="ingredient-list" id="detail-ingredients-container">
+        <!-- 動的 -->
+      </ul>
+
+      <button id="btn-show-shopping-add" class="btn btn-outline" style="margin-top: 16px; margin-bottom: 8px; width: 100%;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="21" r="1"></circle><circle cx="20" cy="21" r="1"></circle><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path></svg>
+        買い物リストに追加
+      </button>
+
+      <div class="section-divider"></div>
+
+      <h2 style="font-size: 1.2rem; margin-bottom: 16px;">手順</h2>
+      <div class="step-list" id="detail-steps-container">
+        <!-- 動的 -->
+      </div>
+
+      <div class="section-divider"></div>
+
+      <div id="detail-notes-section">
+        <h2 style="font-size: 1.2rem; margin-bottom: 8px;">コツ・ポイント</h2>
+        <p id="detail-recipe-notes" style="font-size: 0.95rem; line-height: 1.5; color: var(--text-muted);"></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 8. 管理画面 (要ADMIN_PIN) -->
+  <div id="view-admin" class="view">
+    <div class="header">
+      <div class="container header-content">
+        <button id="btn-admin-back" class="header-btn">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <line x1="19" y1="12" x2="5" y2="12"></line>
+            <polyline points="12 19 5 12 12 5"></polyline>
+          </svg>
+        </button>
+        <h1 class="header-title">レシピ管理</h1>
+        <div style="width: 40px;"></div>
+      </div>
+    </div>
+
+    <div class="container" style="margin-top: 16px;">
+      <!-- PIN認証がされていない場合 -->
+      <div id="admin-pin-auth-section" class="glass-card" style="text-align: center;">
+        <h2 style="font-size: 1.25rem;">管理者PINの入力</h2>
+        <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 20px;">管理者機能を使用するには、管理者PINを入力してください。</p>
+        <input type="password" id="input-admin-pin" class="input-text" placeholder="管理者PIN"
+          style="text-align: center; margin-bottom: 16px;">
+        <button id="btn-submit-admin-pin" class="btn btn-primary">認証する</button>
+      </div>
+
+      <!-- PIN認証完了後の管理機能 -->
+      <div id="admin-main-section" style="display: none;">
+        <div class="glass-card" style="margin-bottom: 20px;">
+          <h3 style="font-size: 1.1rem;">Geminiレシピ画像解析</h3>
+          <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 16px;">
+            料理写真、または手書きレシピメモ画像をアップロードすると、Geminiが自動解析して下書き登録します。</p>
+
+          <div class="form-group">
+            <input type="file" id="input-recipe-file" accept="image/*" style="display: none;">
+            <button id="btn-select-file" class="btn btn-outline" style="margin-bottom: 12px;">画像ファイルを選択</button>
+            <div id="selected-file-name"
+              style="font-size: 0.85rem; color: var(--text-muted); text-align: center; margin-bottom: 12px;"></div>
+          </div>
+
+          <button id="btn-upload-parse" class="btn btn-primary" disabled>解析を開始する</button>
+
+          <div id="parse-loading" style="display: none;">
+            <div class="loading-spinner"></div>
+            <div style="text-align: center; font-size: 0.85rem; color: var(--text-muted);">画像をアップロードしてGeminiが解析中です...
+              (最大1分程度かかります)</div>
+          </div>
+        </div>
+
+        <!-- 下書き確認・修正・本登録エディタ -->
+        <div class="glass-card" id="draft-editor-section" style="display: none; margin-bottom: 20px;">
+          <h3 style="font-size: 1.15rem; color: var(--primary);">下書きの確認・修正</h3>
+          <div id="draft-validation-error" class="validation-error" style="margin-bottom: 12px; font-weight: bold;">
+          </div>
+
+          <div class="form-group">
+            <label>レシピ名 (必須)</label>
+            <input type="text" id="edit-title" class="input-text">
+          </div>
+
+          <div class="form-group">
+            <label>説明・要約 (任意)</label>
+            <textarea id="edit-summary" class="input-text" style="height: 80px; font-family: inherit;"></textarea>
+          </div>
+
+          <div class="form-group">
+            <label>カテゴリ (必須)</label>
+            <select id="edit-category" class="input-text">
+              <option value="主菜">主菜</option>
+              <option value="副菜">副菜</option>
+              <option value="汁物">汁物</option>
+              <option value="主食">主食</option>
+              <option value="デザート">デザート</option>
+              <option value="作り置き">作り置き</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>ジャンル (任意)</label>
+            <select id="edit-genre" class="input-text">
+              <option value="和食">和食</option>
+              <option value="洋食">洋食</option>
+              <option value="中華">中華</option>
+              <option value="韓国">韓国</option>
+              <option value="エスニック">エスニック</option>
+              <option value="その他">その他</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>調理時間（分、任意）</label>
+            <input type="number" id="edit-time-min" class="input-text">
+          </div>
+
+          <div class="form-group">
+            <label>何人分 (例: 2人分)</label>
+            <input type="text" id="edit-servings" class="input-text">
+          </div>
+
+          <div class="form-group">
+            <label>対応調理機器 (複数選択)</label>
+            <div id="edit-equipment-checkboxes" style="display: flex; flex-direction: column; gap: 6px;">
+              <!-- 動的生成 -->
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>材料 (JSON形式での直接編集も可能ですが、簡易編集を用意)</label>
+            <textarea id="edit-ingredients" class="input-text"
+              style="height: 120px; font-family: monospace; font-size: 0.85rem;"
+              placeholder='[{"name":"鶏もも肉","quantity":300,"unit":"g","note":""}]'></textarea>
+          </div>
+
+          <div class="form-group">
+            <label>手順 (行ごとに1手順としてパースします)</label>
+            <textarea id="edit-steps" class="input-text" style="height: 120px; font-family: inherit;"
+              placeholder="手順1&#13;手順2"></textarea>
+          </div>
+
+          <div class="form-group">
+            <label>コツ・ポイント (任意)</label>
+            <textarea id="edit-notes" class="input-text" style="height: 60px; font-family: inherit;"></textarea>
+          </div>
+
+          <button id="btn-publish-recipe" class="btn btn-primary" style="margin-top: 12px;">レシピを本登録する</button>
+        </div>
+
+        <!-- バックアップ作成 -->
+        <div class="glass-card" style="margin-bottom: 20px;">
+          <h3 style="font-size: 1.1rem;">スプレッドシートのバックアップ</h3>
+          <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 16px;">
+            手動で現在の状態のスプレッドシートコピーをGoogleドライブのbackupsフォルダへ保存します。</p>
+          <button id="btn-backup-now" class="btn btn-secondary">今すぐバックアップ作成</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ナビゲーションバー (アクセスコード画面、ログイン画面では非表示) -->
+  <div class="nav-bar" id="bottom-nav" style="display: none;">
+    <button class="nav-item active" data-view="home">
+      <svg viewBox="0 0 24 24">
+        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+        <polyline points="9 22 9 12 15 12 15 22"></polyline>
+      </svg>
+      ホーム
+    </button>
+    <button class="nav-item" data-view="favorites">
+      <svg viewBox="0 0 24 24">
+        <path
+          d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z">
+        </path>
+      </svg>
+      お気に入り
+    </button>
+    <button class="nav-item" data-view="shopping-list">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="9" cy="21" r="1"></circle>
+        <circle cx="20" cy="21" r="1"></circle>
+        <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path>
+      </svg>
+      買い物リスト
+    </button>
+    <button class="nav-item" data-view="history">
+      <svg viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="10"></circle>
+        <polyline points="12 6 12 12 16 14"></polyline>
+      </svg>
+      履歴
+    </button>
+    <button class="nav-item" data-view="settings">
+      <svg viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="3"></circle>
+        <path
+          d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z">
+        </path>
+      </svg>
+      設定
+    </button>
+  </div>
+
+  <!-- フィルター用ボトムシート -->
+  <div class="filter-overlay" id="filter-overlay">
+    <div class="filter-sheet">
+      <div class="filter-sheet-header">
+        <h2 style="margin: 0; font-size: 1.2rem;">絞り込みフィルター</h2>
+        <button id="btn-filter-close" class="header-btn" style="width:32px; height:32px;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+
+      <div class="filter-section-title">調理機器</div>
+      <div class="filter-options" id="filter-equipment-container">
+        <!-- 動的 -->
+      </div>
+
+      <div class="filter-section-title">料理カテゴリ</div>
+      <div class="filter-options" id="filter-category-container">
+        <!-- 動的 -->
+      </div>
+
+      <div class="filter-section-title">ジャンル</div>
+      <div class="filter-options" id="filter-genre-container">
+        <!-- 動的 -->
+      </div>
+
+      <div class="filter-section-title">調理時間</div>
+      <div class="filter-options" id="filter-time-container">
+        <button class="pill" data-time="10">10分以内</button>
+        <button class="pill" data-time="20">20分以内</button>
+        <button class="pill" data-time="30">30分以内</button>
+        <button class="pill" data-time="60">60分以内</button>
+      </div>
+
+      <div class="filter-section-title">タグ</div>
+      <div class="filter-options" id="filter-tag-container">
+        <!-- 動的 -->
+      </div>
+
+      <div style="display: flex; gap: 8px; margin-top: 24px;">
+        <button id="btn-filter-reset" class="btn btn-secondary" style="flex: 1;">リセット</button>
+        <button id="btn-filter-apply" class="btn btn-primary" style="flex: 2;">適用する</button>
+      </div>
+
+      <button id="btn-filter-save-default" class="btn btn-outline"
+        style="margin-top: 8px; font-size: 0.85rem; padding: 10px;">
+        現在の条件をよく使うフィルターとして保存
+      </button>
+    </div>
+  </div>
+
+  <!-- 食材選択ボトムシート -->
+  <div class="filter-overlay" id="shopping-add-overlay">
+    <div class="filter-sheet" style="max-height: 80%;">
+      <div class="filter-sheet-header">
+        <h2 style="margin: 0; font-size: 1.2rem;">どの食材を買い物リストに追加しますか？</h2>
+        <button id="btn-shopping-add-close" class="header-btn" style="width:32px; height:32px;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+
+      <div style="display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--primary); font-weight: bold; margin-bottom: 8px; cursor: pointer;">
+        <span id="btn-shopping-select-all">すべて選択</span>
+        <span id="btn-shopping-deselect-all">すべて解除</span>
+      </div>
+
+      <div class="shopping-add-list" id="shopping-add-items-container">
+        <!-- 動的 -->
+      </div>
+
+      <button id="btn-shopping-add-submit" class="btn btn-primary" style="margin-top: 16px;">
+        買い物リストに追加
+      </button>
+    </div>
+  </div>
+
+  <script>
+    // -------------------------------------------------------------
+    // Configuration & State
+    // -------------------------------------------------------------
+
+    // GASデプロイ後のURL。未設定時はモックデータが動作します
+    const API_URL = "https://script.google.com/macros/s/AKfycbx9jz7Qah6xZLOufCVLcqArH9xd21v3-ok8kff2BzAJMVt_gAmd4Gs-X3iWfTFyatvc/exec";
+
+    let db;
+    let recipesState = [];
+    let equipmentMaster = [];
+    let activeFilters = {
+      searchQuery: '',
+      equipmentIds: [],
+      category: '',
+      genre: '',
+      timeMax: null,
+      tags: []
+    };
+
+    let shoppingListState = [];
+
+    let userState = {
+      userIdHash: '',
+      displayName: '',
+      favoriteRecipeIds: [],
+      favoriteEquipmentIds: [],
+      defaultFilters: {},
+      recentViews: [],
+      recentSearches: []
+    };
+
+    let currentDetailRecipe = null;
+    let selectedUploadFileBase64 = null;
+    let selectedUploadFileName = "";
+    let currentDraftId = null;
+
+    // -------------------------------------------------------------
+    // IndexedDB & Initialization
+    // -------------------------------------------------------------
+
+    function initDB() {
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open('RecipeAppDB', 1);
+
+        request.onupgradeneeded = (e) => {
+          const database = e.target.result;
+          if (!database.objectStoreNames.contains('recipes')) {
+            database.createObjectStore('recipes', { keyPath: 'recipeId' });
+          }
+          if (!database.objectStoreNames.contains('userState')) {
+            database.createObjectStore('userState', { keyPath: 'userIdHash' });
+          }
+        };
+
+        request.onsuccess = (e) => {
+          db = e.target.result;
+          resolve();
+        };
+
+        request.onerror = (e) => {
+          console.error('IndexedDB error:', e);
+          reject(e);
+        };
+      });
+    }
+
+    function getLocalData(storeName, key) {
+      return new Promise((resolve) => {
+        if (!db) return resolve(null);
+        const transaction = db.transaction(storeName, 'readonly');
+        const store = transaction.objectStore(storeName);
+        const request = store.get(key);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => resolve(null);
+      });
+    }
+
+    function saveLocalData(storeName, data) {
+      return new Promise((resolve) => {
+        if (!db) return resolve();
+        const transaction = db.transaction(storeName, 'readwrite');
+        const store = transaction.objectStore(storeName);
+        store.put(data);
+        transaction.oncomplete = () => resolve();
+      });
+    }
+
+    function clearLocalStore(storeName) {
+      return new Promise((resolve) => {
+        if (!db) return resolve();
+        const transaction = db.transaction(storeName, 'readwrite');
+        const store = transaction.objectStore(storeName);
+        store.clear();
+        transaction.oncomplete = () => resolve();
+      });
+    }
+
+    // SHA-256を用いたニックネームのハッシュ化（簡易ID生成）
+    async function hashUserKey(key) {
+      const encoder = new TextEncoder();
+      const data = encoder.encode(key.trim().toLowerCase());
+      const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+      return hashHex;
+    }
+
+    // -------------------------------------------------------------
+    // API Communication (Fetch / Mock)
+    // -------------------------------------------------------------
+
+    async function callAPI(action, payload = {}) {
+      const accessCode = localStorage.getItem('accessCode');
+      const userIdHash = localStorage.getItem('userIdHash');
+
+      const body = {
+        action: action,
+        accessCode: accessCode,
+        userIdHash: userIdHash,
+        payload: payload
+      };
+
+      if (!API_URL) {
+        // API_URLが空の場合はモック動作をする
+        return mockAPIResponse(action, body);
+      }
+
+      try {
+        const response = await fetch(API_URL, {
+          method: 'POST',
+          body: JSON.stringify(body),
+          headers: {
+            'Content-Type': 'text/plain'
+          }
+        });
+
+        if (!response.ok) {
+          throw new Error('API request failed');
+        }
+
+        const json = await response.json();
+        if (!json.success) {
+          throw new Error(json.error);
+        }
+
+        return json.data;
+      } catch (err) {
+        console.error('API Call Error:', err);
+        throw err;
+      }
+    }
+
+    // モックデータ定義
+    const MOCK_RECIPES = [
+      {
+        recipeId: "R000001",
+        title: "とろけるチキン甘酢煮",
+        summary: "電気圧力鍋でホロホロに柔らかく仕上げた、ご飯の進む定番おかずです。",
+        category: "主菜",
+        genre: "和食",
+        equipmentIdsJson: '["rakucooker_pro"]',
+        cookingMethodsJson: '["圧力","煮る"]',
+        ingredientKeywordsJson: '["鶏もも肉","玉ねぎ","酢","しょうゆ"]',
+        timeMin: 25,
+        difficulty: "かんたん",
+        tagsJson: '["子ども向け","作り置き"]',
+        servings: "2人分",
+        ingredientsJson: JSON.stringify([
+          { name: "鶏もも肉", quantity: 350, unit: "g", note: "一口大" },
+          { name: "玉ねぎ", quantity: 0.5, unit: "個", note: "くし切り" },
+          { name: "しょうゆ", quantity: 2, unit: "大さじ", note: "" },
+          { name: "砂糖", quantity: 1.5, unit: "大さじ", note: "" },
+          { name: "お酢", quantity: 2, unit: "大さじ", note: "" },
+          { name: "生姜チューブ", quantity: null, unit: "", note: "2cm" }
+        ]),
+        stepsJson: JSON.stringify([
+          "鶏肉と玉ねぎを切り、内鍋に入れる。",
+          "調味料（しょうゆ、砂糖、お酢、生姜）を混ぜて加える。",
+          "電気圧力鍋の『圧力調理』モードで10分加熱する。",
+          "ピンが下がったら全体を優しく混ぜて完成。"
+        ]),
+        notes: "お酢の効果でお肉が非常に柔らかくなります。冷めても美味しいのでお弁当にもおすすめです。",
+        imageUrl: "assets/default_recipe.jpg",
+        thumbnailUrl: "assets/default_recipe.jpg",
+        status: "published",
+        createdAt: "2026-06-14T10:00:00.000Z",
+        updatedAt: "2026-06-14T10:00:00.000Z"
+      },
+      {
+        recipeId: "R000002",
+        title: "無水キーマカレー",
+        summary: "水を一切加えず、野菜の水分だけで煮込む濃厚で旨味たっぷりのホットクックカレー。",
+        category: "主食",
+        genre: "その他",
+        equipmentIdsJson: '["hotcook"]',
+        cookingMethodsJson: '["煮る"]',
+        ingredientKeywordsJson: '["合挽き肉","玉ねぎ","トマト","カレールー"]',
+        timeMin: 45,
+        difficulty: "普通",
+        tagsJson: '["作り置き","ヘルシー"]',
+        servings: "4人分",
+        ingredientsJson: JSON.stringify([
+          { name: "合い挽き肉", quantity: 300, unit: "g", note: "" },
+          { name: "玉ねぎ", quantity: 2, unit: "個", note: "みじん切り" },
+          { name: "トマト", quantity: 2, unit: "個", note: "ざく切り" },
+          { name: "カレールー", quantity: 4, unit: "皿分", note: "刻んでおく" },
+          { name: "おろしにんにく", quantity: null, unit: "", note: "適量" }
+        ]),
+        stepsJson: JSON.stringify([
+          "玉ねぎはみじん切り、トマトはざく切りにする。",
+          "内鍋にトマト、玉ねぎ、合い挽き肉、カレールーの順に入れ、にんにくを散らす。",
+          "ホットクックの『キーマカレー』メニューで自動スタート。",
+          "終了後、よく混ぜて余熱で味を馴染ませる。"
+        ]),
+        notes: "トマトの酸味と玉ねぎの甘みが凝縮されます。辛口のルーでもマイルドに仕上がります。",
+        imageUrl: "assets/default_recipe.jpg",
+        thumbnailUrl: "assets/default_recipe.jpg",
+        status: "published",
+        createdAt: "2026-06-14T11:00:00.000Z",
+        updatedAt: "2026-06-14T11:00:00.000Z"
+      }
+    ];
+
+    const MOCK_EQUIPMENT = [
+      { equipmentId: 'rakucooker_pro', name: 'ラクラクッカープロ', type: '電気圧力鍋', isActive: true },
+      { equipmentId: 'hotcook', name: 'ホットクック', type: '自動調理鍋', isActive: true },
+      { equipmentId: 'bistro', name: 'ビストロ', type: 'オーブンレンジ', isActive: true },
+      { equipmentId: 'frying_pan', name: 'フライパン', type: '汎用調理器具', isActive: true },
+      { equipmentId: 'pot', name: '鍋', type: '汎用調理器具', isActive: true },
+      { equipmentId: 'microwave', name: '電子レンジ', type: '汎用調理器具', isActive: true }
+    ];
+
+    function mockAPIResponse(action, request) {
+      console.log('[Mock API] Processing action:', action, request);
+      return new Promise((resolve, reject) => {
+        setTimeout(() => {
+          if (action === 'getBootstrap') {
+            resolve({
+              recipes: MOCK_RECIPES,
+              equipment: MOCK_EQUIPMENT,
+              categories: ['主菜', '副菜', '汁物', '主食', 'デザート', '作り置き'],
+              genres: ['和食', '洋食', '中華', '韓国', 'エスニック', 'その他'],
+              tags: ['子ども向け', '作り置き', 'ヘルシー', '時短', '節約'],
+              serverTime: new Date().toISOString()
+            });
+          } else if (action === 'getUserState') {
+            resolve({
+              userIdHash: request.userIdHash,
+              displayName: localStorage.getItem('userKey') || 'MockUser',
+              favoriteRecipeIds: userState.favoriteRecipeIds,
+              favoriteEquipmentIds: userState.favoriteEquipmentIds,
+              defaultFilters: userState.defaultFilters,
+              recentViews: userState.recentViews,
+              recentSearches: userState.recentSearches
+            });
+          } else if (action === 'saveUserState') {
+            // ローカルで同期
+            userState = { ...userState, ...request.payload };
+            resolve({ success: true });
+          } else if (action === 'uploadRecipeImage') {
+            resolve({
+              fileId: 'mock_file_id_' + Date.now(),
+              imageUrl: 'assets/default_recipe.jpg',
+              fileName: request.payload.fileName,
+              fileSize: 102400
+            });
+          } else if (action === 'parseRecipeWithGemini') {
+            resolve({
+              draftId: 'D_mock_' + Date.now(),
+              rawImageFileId: request.payload.fileId,
+              parsedRecipe: {
+                title: "Geminiのモック焼きそば",
+                summary: "AIが画像から解析したモチモチ食感の焼きそば。",
+                category: "主食",
+                genre: "中華",
+                equipmentIds: ["frying_pan"],
+                cookingMethods: ["焼く", "炒める"],
+                timeMin: 15,
+                difficulty: "かんたん",
+                servings: "2人分",
+                tags: ["時短", "節約"],
+                ingredientsJson: [
+                  { name: "焼きそば麺", quantity: 2, unit: "玉", note: "" },
+                  { name: "豚バラ肉", quantity: 100, unit: "g", note: "一口大" },
+                  { name: "キャベツ", quantity: 2, unit: "枚", note: "ざく切り" },
+                  { name: "ソース", quantity: 3, unit: "大さじ", note: "" }
+                ],
+                stepsJson: [
+                  "フライパンを熱し、豚肉を炒める。",
+                  "キャベツを加えてしんなりするまで炒める。",
+                  "麺と少量の水を加えてほぐしながら炒める。",
+                  "ソースを回しかけ、全体によく混ぜ合わせる。"
+                ],
+                notes: "麺に少し焼き目を付けてからほぐすと香ばしくなります。"
+              }
+            });
+          } else if (action === 'publishRecipeDraft') {
+            const recipeId = 'R' + String(MOCK_RECIPES.length + 1).padStart(6, '0');
+            const newRecipe = {
+              recipeId: recipeId,
+              ...request.payload.finalRecipe,
+              ingredientsJson: JSON.stringify(request.payload.finalRecipe.ingredientsJson),
+              stepsJson: JSON.stringify(request.payload.finalRecipe.stepsJson),
+              equipmentIdsJson: JSON.stringify(request.payload.finalRecipe.equipmentIds),
+              tagsJson: JSON.stringify(request.payload.finalRecipe.tags),
+              imageUrl: "assets/default_recipe.jpg",
+              thumbnailUrl: "assets/default_recipe.jpg",
+              status: 'published',
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString()
+            };
+            MOCK_RECIPES.push(newRecipe);
+            resolve({ success: true, recipeId: recipeId });
+          } else if (action === 'backupSpreadsheet') {
+            resolve({ backupFileName: 'recipe-app-backup-mock-' + Date.now() });
+          } else {
+            reject(new Error('Mock action not implemented: ' + action));
+          }
+        }, 800); // 遅延させてローディング感を再現
+      });
+    }
+
+    // -------------------------------------------------------------
+    // Routing & Views Controller
+    // -------------------------------------------------------------
+
+    function navigateTo(viewId) {
+      document.querySelectorAll('.view').forEach(v => {
+        v.classList.remove('active');
+      });
+      const targetView = document.getElementById('view-' + viewId);
+      if (targetView) {
+        targetView.style.display = 'flex';
+        // トランジションが滑らかになるようにsetTimeoutを使用
+        setTimeout(() => {
+          targetView.classList.add('active');
+        }, 50);
+      }
+
+      // ナビゲーションバーの表示制御
+      const bottomNav = document.getElementById('bottom-nav');
+      if (viewId === 'access-code' || viewId === 'login') {
+        bottomNav.style.display = 'none';
+      } else {
+        bottomNav.style.display = 'flex';
+        // ナビバーのアイコンアクティブ状態更新
+        document.querySelectorAll('.nav-item').forEach(item => {
+          if (item.getAttribute('data-view') === viewId) {
+            item.classList.add('active');
+          } else {
+            item.classList.remove('active');
+          }
+        });
+      }
+
+      localStorage.setItem('currentView', viewId);
+
+      // 画面固有の描画処理
+      if (viewId === 'home') renderRecipes();
+      if (viewId === 'favorites') renderFavorites();
+      if (viewId === 'shopping-list') renderShoppingList();
+      if (viewId === 'history') renderHistory();
+      if (viewId === 'settings') renderSettings();
+    }
+
+    // -------------------------------------------------------------
+    // Toast Alert Helper
+    // -------------------------------------------------------------
+    function showToast(message, isSuccess = true) {
+      const toast = document.getElementById('toast');
+      toast.textContent = message;
+      toast.style.backgroundColor = isSuccess ? 'var(--text-main)' : 'var(--danger)';
+      toast.style.color = isSuccess ? 'var(--bg)' : 'white';
+
+      toast.classList.add('show');
+      setTimeout(() => {
+        toast.classList.remove('show');
+      }, 2500);
+    }
+
+    // -------------------------------------------------------------
+    // UI Rendering Functions
+    // -------------------------------------------------------------
+
+    // レシピ一覧のレンダリング
+    function renderRecipes() {
+      const container = document.getElementById('recipes-container');
+      const resultTitle = document.getElementById('list-result-title');
+      container.innerHTML = '';
+
+      // フィルタリング処理
+      const filtered = recipesState.filter(recipe => {
+        // キーワード検索
+        if (activeFilters.searchQuery) {
+          const query = activeFilters.searchQuery.toLowerCase();
+          const matchesTitle = recipe.title.toLowerCase().includes(query);
+          const matchesSummary = (recipe.summary || '').toLowerCase().includes(query);
+
+          let matchesKeywords = false;
+          if (recipe.ingredientKeywordsJson) {
+            try {
+              const keywords = JSON.parse(recipe.ingredientKeywordsJson);
+              matchesKeywords = keywords.some(k => k.toLowerCase().includes(query));
+            } catch (e) { }
+          }
+
+          if (!matchesTitle && !matchesSummary && !matchesKeywords) return false;
+        }
+
+        // 調理機器
+        if (activeFilters.equipmentIds.length > 0) {
+          try {
+            const recipeEquip = JSON.parse(recipe.equipmentIdsJson || '[]');
+            const hasMatch = activeFilters.equipmentIds.some(id => recipeEquip.includes(id));
+            if (!hasMatch) return false;
+          } catch (e) { return false; }
+        }
+
+        // カテゴリ
+        if (activeFilters.category && recipe.category !== activeFilters.category) return false;
+
+        // ジャンル
+        if (activeFilters.genre && recipe.genre !== activeFilters.genre) return false;
+
+        // 調理時間
+        if (activeFilters.timeMax && recipe.timeMin > activeFilters.timeMax) return false;
+
+        // タグ
+        if (activeFilters.tags.length > 0) {
+          try {
+            const recipeTags = JSON.parse(recipe.tagsJson || '[]');
+            const hasAllTags = activeFilters.tags.every(t => recipeTags.includes(t));
+            if (!hasAllTags) return false;
+          } catch (e) { return false; }
+        }
+
+        return true;
+      });
+
+      resultTitle.textContent = activeFilters.searchQuery || activeFilters.category || activeFilters.genre || activeFilters.equipmentIds.length > 0
+        ? `検索結果: ${filtered.length} 件`
+        : `レシピ一覧 (${filtered.length} 件)`;
+
+      if (filtered.length === 0) {
+        container.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 40px 0;">合致するレシピが見つかりませんでした。</div>`;
+        return;
+      }
+
+      filtered.forEach(recipe => {
+        const card = document.createElement('div');
+        card.className = 'recipe-card';
+        card.addEventListener('click', () => showRecipeDetail(recipe.recipeId));
+
+        const isFav = userState.favoriteRecipeIds.includes(recipe.recipeId);
+        const imgUrl = recipe.thumbnailUrl || recipe.imageUrl || 'assets/default_recipe.jpg';
+
+        let equipNames = '';
+        try {
+          const ids = JSON.parse(recipe.equipmentIdsJson || '[]');
+          equipNames = ids.map(id => {
+            const eq = equipmentMaster.find(e => e.equipmentId === id);
+            return eq ? eq.name : '';
+          }).filter(Boolean).join(', ');
+        } catch (e) { }
+
+        card.innerHTML = `
+          <img class="recipe-card-img" src="${imgUrl}" onerror="this.src='assets/default_recipe.jpg'" alt="${recipe.title}">
+          <button class="recipe-card-fav ${isFav ? 'active' : ''}" data-id="${recipe.recipeId}">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="${isFav ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
+          </button>
+          <div class="recipe-card-content">
+            <div class="recipe-card-title">${recipe.title}</div>
+            <div class="recipe-card-meta">
+              <span class="tag-badge" style="padding: 2px 6px; font-size: 0.65rem;">${recipe.category}</span>
+              ${recipe.timeMin ? `<span>⏱ ${recipe.timeMin}分</span>` : ''}
+            </div>
+            ${equipNames ? `<div style="font-size:0.65rem; color:var(--text-light); margin-top:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${equipNames}</div>` : ''}
+          </div>
+        `;
+
+        // ハートお気に入りボタンの個別クリックハンドリング
+        card.querySelector('.recipe-card-fav').addEventListener('click', (e) => {
+          e.stopPropagation();
+          toggleFavorite(recipe.recipeId);
+        });
+
+        container.appendChild(card);
+      });
+    }
+
+    // お気に入り一覧表示
+    function renderFavorites() {
+      const container = document.getElementById('fav-recipes-container');
+      const emptyDiv = document.getElementById('empty-favorites');
+      container.innerHTML = '';
+
+      const favRecipes = recipesState.filter(r => userState.favoriteRecipeIds.includes(r.recipeId));
+
+      if (favRecipes.length === 0) {
+        emptyDiv.style.display = 'block';
+        return;
+      }
+      emptyDiv.style.display = 'none';
+
+      favRecipes.forEach(recipe => {
+        const card = document.createElement('div');
+        card.className = 'recipe-card';
+        card.addEventListener('click', () => showRecipeDetail(recipe.recipeId));
+        const imgUrl = recipe.thumbnailUrl || recipe.imageUrl || 'assets/default_recipe.jpg';
+
+        card.innerHTML = `
+          <img class="recipe-card-img" src="${imgUrl}" onerror="this.src='assets/default_recipe.jpg'" alt="${recipe.title}">
+          <div class="recipe-card-content">
+            <div class="recipe-card-title">${recipe.title}</div>
+            <div class="recipe-card-meta">
+              <span class="tag-badge" style="padding: 2px 6px; font-size: 0.65rem;">${recipe.category}</span>
+              ${recipe.timeMin ? `<span>⏱ ${recipe.timeMin}分</span>` : ''}
+            </div>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    // 履歴画面の表示
+    function renderHistory() {
+      const container = document.getElementById('history-recipes-container');
+      const emptyDiv = document.getElementById('empty-history');
+      container.innerHTML = '';
+
+      const viewHistory = userState.recentViews || [];
+      const historyRecipes = viewHistory.map(h => {
+        return recipesState.find(r => r.recipeId === h.recipeId);
+      }).filter(Boolean);
+
+      if (historyRecipes.length === 0) {
+        emptyDiv.style.display = 'block';
+        return;
+      }
+      emptyDiv.style.display = 'none';
+
+      // 履歴は最大50件
+      historyRecipes.slice(0, 50).forEach(recipe => {
+        const card = document.createElement('div');
+        card.className = 'recipe-card';
+        card.addEventListener('click', () => showRecipeDetail(recipe.recipeId));
+        const imgUrl = recipe.thumbnailUrl || recipe.imageUrl || 'assets/default_recipe.jpg';
+
+        card.innerHTML = `
+          <img class="recipe-card-img" src="${imgUrl}" onerror="this.src='assets/default_recipe.jpg'" alt="${recipe.title}">
+          <div class="recipe-card-content">
+            <div class="recipe-card-title">${recipe.title}</div>
+            <div class="recipe-card-meta">
+              <span class="tag-badge" style="padding: 2px 6px; font-size: 0.65rem;">${recipe.category}</span>
+              ${recipe.timeMin ? `<span>⏱ ${recipe.timeMin}分</span>` : ''}
+            </div>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    // 設定画面の描画
+    function renderSettings() {
+      document.getElementById('settings-display-name').textContent = userState.displayName || '未登録';
+    }
+
+    // レシピ詳細表示
+    function showRecipeDetail(recipeId) {
+      const recipe = recipesState.find(r => r.recipeId === recipeId);
+      if (!recipe) return;
+
+      currentDetailRecipe = recipe;
+      navigateTo('detail');
+
+      // 閲覧履歴へ追加
+      addToHistory(recipeId);
+
+      // UI反映
+      document.getElementById('detail-recipe-image').src = recipe.imageUrl || 'assets/default_recipe.jpg';
+      document.getElementById('detail-recipe-title').textContent = recipe.title;
+      document.getElementById('detail-recipe-summary').textContent = recipe.summary || '';
+      document.getElementById('detail-servings').textContent = recipe.servings || '2人分';
+
+      const tagsContainer = document.getElementById('detail-tags-container');
+      tagsContainer.innerHTML = '';
+
+      // カテゴリバッジ
+      const catBadge = document.createElement('span');
+      catBadge.className = 'tag-badge tag-badge-primary';
+      catBadge.textContent = recipe.category;
+      tagsContainer.appendChild(catBadge);
+
+      // ジャンルバッジ
+      if (recipe.genre) {
+        const genreBadge = document.createElement('span');
+        genreBadge.className = 'tag-badge';
+        genreBadge.textContent = recipe.genre;
+        tagsContainer.appendChild(genreBadge);
+      }
+
+      // 調理時間バッジ
+      if (recipe.timeMin) {
+        const timeBadge = document.createElement('span');
+        timeBadge.className = 'tag-badge';
+        timeBadge.textContent = `⏱ ${recipe.timeMin}分`;
+        tagsContainer.appendChild(timeBadge);
+      }
+
+      // 調理機器バッジ
+      try {
+        const equipIds = JSON.parse(recipe.equipmentIdsJson || '[]');
+        equipIds.forEach(eqId => {
+          const eqObj = equipmentMaster.find(e => e.equipmentId === eqId);
+          if (eqObj) {
+            const badge = document.createElement('span');
+            badge.className = 'tag-badge';
+            badge.textContent = eqObj.name;
+            tagsContainer.appendChild(badge);
+          }
+        });
+      } catch (e) { }
+
+      // タグバッジ
+      try {
+        const tags = JSON.parse(recipe.tagsJson || '[]');
+        tags.forEach(t => {
+          const badge = document.createElement('span');
+          badge.className = 'tag-badge';
+          badge.textContent = `#${t}`;
+          tagsContainer.appendChild(badge);
+        });
+      } catch (e) { }
+
+      // お気に入り状態更新
+      const favBtn = document.getElementById('btn-detail-fav');
+      const isFav = userState.favoriteRecipeIds.includes(recipeId);
+      favBtn.style.color = isFav ? 'var(--danger)' : 'var(--text-main)';
+      favBtn.querySelector('svg').setAttribute('fill', isFav ? 'currentColor' : 'none');
+
+      // コツ・ポイント
+      const notesSection = document.getElementById('detail-notes-section');
+      if (recipe.notes) {
+        notesSection.style.display = 'block';
+        document.getElementById('detail-recipe-notes').textContent = recipe.notes;
+      } else {
+        notesSection.style.display = 'none';
+      }
+
+      // 倍率初期化
+      document.getElementById('select-multiplier').value = "1.0";
+
+      // 材料・手順描画
+      renderIngredients(1.0);
+      renderSteps();
+    }
+
+    // 材料分量計算・描画ロジック
+    function renderIngredients(multiplier) {
+      const container = document.getElementById('detail-ingredients-container');
+      container.innerHTML = '';
+
+      let ingredients = [];
+      try {
+        ingredients = JSON.parse(currentDetailRecipe.ingredientsJson || '[]');
+      } catch (e) { }
+
+      if (ingredients.length === 0) {
+        container.innerHTML = '<li class="ingredient-item">材料情報の登録がありません。</li>';
+        return;
+      }
+
+      ingredients.forEach(item => {
+        const li = document.createElement('li');
+        li.className = 'ingredient-item';
+
+        let displayQty = '';
+        if (item.quantity !== null && !isNaN(item.quantity)) {
+          // 数値ありの場合は掛け合わせる
+          const calculated = item.quantity * multiplier;
+          // 端数を丸める (例: 0.25倍などの場合)
+          const rounded = Math.round(calculated * 100) / 100;
+          displayQty = `${rounded}${item.unit}`;
+        } else {
+          // 数値なしの場合はそのまま (少々、適量など)
+          displayQty = item.unit || '';
+        }
+
+        // ノート（一口大など）があれば追記
+        const noteText = item.note ? ` (${item.note})` : '';
+
+        li.innerHTML = `
+          <span class="ingredient-name">${item.name}${noteText}</span>
+          <span class="ingredient-qty">${displayQty}</span>
+        `;
+        container.appendChild(li);
+      });
+    }
+
+    // 手順の描画
+    function renderSteps() {
+      const container = document.getElementById('detail-steps-container');
+      container.innerHTML = '';
+
+      let steps = [];
+      try {
+        steps = JSON.parse(currentDetailRecipe.stepsJson || '[]');
+      } catch (e) { }
+
+      if (steps.length === 0) {
+        container.innerHTML = '<div>手順情報の登録がありません。</div>';
+        return;
+      }
+
+      steps.forEach((step, idx) => {
+        const item = document.createElement('div');
+        item.className = 'step-item';
+        item.innerHTML = `
+          <div class="step-number">${idx + 1}</div>
+          <div class="step-text">${step}</div>
+        `;
+        container.appendChild(item);
+      });
+    }
+
+    // -------------------------------------------------------------
+    // Core Application Actions
+    // -------------------------------------------------------------
+
+    // お気に入り登録トグル
+    async function toggleFavorite(recipeId) {
+      let favs = [...userState.favoriteRecipeIds];
+      const idx = favs.indexOf(recipeId);
+
+      if (idx >= 0) {
+        favs.splice(idx, 1);
+        showToast('お気に入りを解除しました');
+      } else {
+        favs.push(recipeId);
+        showToast('お気に入りに追加しました');
+      }
+
+      userState.favoriteRecipeIds = favs;
+
+      // ローカル保存
+      await saveLocalData('userState', userState);
+
+      // UI即時更新
+      if (localStorage.getItem('currentView') === 'home') renderRecipes();
+      if (localStorage.getItem('currentView') === 'favorites') renderFavorites();
+
+      // 詳細画面にいる場合
+      if (currentDetailRecipe && currentDetailRecipe.recipeId === recipeId) {
+        const favBtn = document.getElementById('btn-detail-fav');
+        const isFav = favs.includes(recipeId);
+        favBtn.style.color = isFav ? 'var(--danger)' : 'var(--text-main)';
+        favBtn.querySelector('svg').setAttribute('fill', isFav ? 'currentColor' : 'none');
+      }
+
+      // 非同期でサーバー同期（オフライン時はスキップ）
+      if (navigator.onLine) {
+        try {
+          await callAPI('saveUserState', {
+            favoriteRecipeIds: favs,
+            displayName: userState.displayName,
+            favoriteEquipmentIds: userState.favoriteEquipmentIds,
+            defaultFilters: userState.defaultFilters,
+            recentViews: userState.recentViews,
+            recentSearches: userState.recentSearches
+          });
+        } catch (e) {
+          console.warn('Could not sync user state with server', e);
+        }
+      }
+    }
+
+    // 履歴追加処理
+    async function addToHistory(recipeId) {
+      let views = [...(userState.recentViews || [])];
+
+      // 重複があれば削除して最新位置（先頭）に挿入
+      const existingIdx = views.findIndex(v => v.recipeId === recipeId);
+      if (existingIdx >= 0) {
+        views.splice(existingIdx, 1);
+      }
+
+      views.unshift({
+        recipeId: recipeId,
+        viewedAt: new Date().toISOString()
+      });
+
+      // 最大50件
+      if (views.length > 50) {
+        views = views.slice(0, 50);
+      }
+
+      userState.recentViews = views;
+      await saveLocalData('userState', userState);
+
+      if (navigator.onLine) {
+        try {
+          await callAPI('saveUserState', {
+            recentViews: views,
+            displayName: userState.displayName,
+            favoriteRecipeIds: userState.favoriteRecipeIds,
+            favoriteEquipmentIds: userState.favoriteEquipmentIds,
+            defaultFilters: userState.defaultFilters,
+            recentSearches: userState.recentSearches
+          });
+        } catch (e) { }
+      }
+    }
+
+    // 初期化ロード（BootstrapデータのロードとIndexedDB同期）
+    async function loadBootstrap() {
+      document.getElementById('loading-recipes').style.display = 'block';
+
+      try {
+        if (navigator.onLine) {
+          // オンラインならサーバーから最新データをロード
+          const data = await callAPI('getBootstrap');
+
+          recipesState = data.recipes || [];
+          equipmentMaster = data.equipment || [];
+
+          // カテゴリ、ジャンル、タグのクイックアクセス用を初期化
+          initFilterOverlayUI(data);
+
+          // IndexedDBに一括キャッシュ
+          await clearLocalStore('recipes');
+          for (let r of recipesState) {
+            await saveLocalData('recipes', r);
+          }
+
+          // 調理機器マスタなどのメタデータをlocalStorageに一旦保持
+          localStorage.setItem('equipmentMaster', JSON.stringify(equipmentMaster));
+          localStorage.setItem('categories', JSON.stringify(data.categories || []));
+          localStorage.setItem('genres', JSON.stringify(data.genres || []));
+          localStorage.setItem('tags', JSON.stringify(data.tags || []));
+
+          // ユーザー情報も同期
+          const serverState = await callAPI('getUserState');
+          userState = { ...userState, ...serverState };
+          await saveLocalData('userState', userState);
+
+          console.log('Online bootstrap loaded & synchronized local cache');
+        } else {
+          // オフラインならIndexedDBからロード
+          recipesState = await new Promise((resolve) => {
+            const transaction = db.transaction('recipes', 'readonly');
+            const store = transaction.objectStore('recipes');
+            const request = store.getAll();
+            request.onsuccess = () => resolve(request.result || []);
+            request.onerror = () => resolve([]);
+          });
+
+          equipmentMaster = JSON.parse(localStorage.getItem('equipmentMaster') || '[]');
+
+          const categories = JSON.parse(localStorage.getItem('categories') || '[]');
+          const genres = JSON.parse(localStorage.getItem('genres') || '[]');
+          const tags = JSON.parse(localStorage.getItem('tags') || '[]');
+
+          initFilterOverlayUI({
+            categories: categories,
+            genres: genres,
+            tags: tags
+          });
+
+          // ローカルのユーザー情報を読込
+          const localUser = await getLocalData('userState', localStorage.getItem('userIdHash'));
+          if (localUser) {
+            userState = localUser;
+          }
+          console.log('Offline bootstrap loaded from local IndexedDB cache');
+        }
+      } catch (err) {
+        console.error('Bootstrap error, trying to fallback to local DB', err);
+        showToast('データの取得に失敗しました。ローカルキャッシュを表示します。', false);
+
+        // フォールバック
+        recipesState = await new Promise((resolve) => {
+          const transaction = db.transaction('recipes', 'readonly');
+          const store = transaction.objectStore('recipes');
+          const request = store.getAll();
+          request.onsuccess = () => resolve(request.result || []);
+          request.onerror = () => resolve([]);
+        });
+        equipmentMaster = JSON.parse(localStorage.getItem('equipmentMaster') || '[]');
+      } finally {
+        document.getElementById('loading-recipes').style.display = 'none';
+      }
+
+      // 前回のユーザー既定フィルターがあれば復元
+      if (userState.defaultFilters && Object.keys(userState.defaultFilters).length > 0) {
+        activeFilters = { ...activeFilters, ...userState.defaultFilters };
+        applyFiltersToUI();
+      }
+
+      renderRecipes();
+    }
+
+    // フィルター画面のオプションUIの動的構築
+    function initFilterOverlayUI(data) {
+      const eqContainer = document.getElementById('filter-equipment-container');
+      const catContainer = document.getElementById('filter-category-container');
+      const genContainer = document.getElementById('filter-genre-container');
+      const tagContainer = document.getElementById('filter-tag-container');
+
+      eqContainer.innerHTML = '';
+      catContainer.innerHTML = '';
+      genContainer.innerHTML = '';
+      tagContainer.innerHTML = '';
+
+      // カテゴリピル（ホーム画面の上部クイックフィルタ）
+      const homePills = document.getElementById('home-category-pills');
+      homePills.innerHTML = '<button class="pill active" data-category="">すべて</button>';
+
+      // 調理機器
+      equipmentMaster.forEach(eq => {
+        const btn = document.createElement('button');
+        btn.className = 'pill';
+        btn.textContent = eq.name;
+        btn.dataset.id = eq.equipmentId;
+        btn.addEventListener('click', () => {
+          btn.classList.toggle('active');
+        });
+        eqContainer.appendChild(btn);
+      });
+
+      // カテゴリ
+      const categories = data.categories || [];
+      categories.forEach(cat => {
+        // ボトムシート用
+        const btn = document.createElement('button');
+        btn.className = 'pill';
+        btn.textContent = cat;
+        btn.dataset.category = cat;
+        btn.addEventListener('click', () => {
+          catContainer.querySelectorAll('.pill').forEach(p => p.classList.remove('active'));
+          btn.classList.add('active');
+        });
+        catContainer.appendChild(btn);
+
+        // ホーム画面用クイックピル
+        const homeBtn = document.createElement('button');
+        homeBtn.className = 'pill';
+        homeBtn.textContent = cat;
+        homeBtn.dataset.category = cat;
+        homeBtn.addEventListener('click', () => {
+          homePills.querySelectorAll('.pill').forEach(p => p.classList.remove('active'));
+          homeBtn.classList.add('active');
+          activeFilters.category = cat;
+          renderRecipes();
+        });
+        homePills.appendChild(homeBtn);
+      });
+
+      // ジャンル
+      const genres = data.genres || [];
+      genres.forEach(gen => {
+        const btn = document.createElement('button');
+        btn.className = 'pill';
+        btn.textContent = gen;
+        btn.dataset.genre = gen;
+        btn.addEventListener('click', () => {
+          genContainer.querySelectorAll('.pill').forEach(p => p.classList.remove('active'));
+          btn.classList.add('active');
+        });
+        genContainer.appendChild(btn);
+      });
+
+      // タグ
+      const tags = data.tags || [];
+      tags.forEach(tag => {
+        const btn = document.createElement('button');
+        btn.className = 'pill';
+        btn.textContent = `#${tag}`;
+        btn.dataset.tag = tag;
+        btn.addEventListener('click', () => {
+          btn.classList.toggle('active');
+        });
+        tagContainer.appendChild(btn);
+      });
+    }
+
+    // フィルタUIから適用
+    function applyFiltersFromUI() {
+      const eqContainer = document.getElementById('filter-equipment-container');
+      const catContainer = document.getElementById('filter-category-container');
+      const genContainer = document.getElementById('filter-genre-container');
+      const tagContainer = document.getElementById('filter-tag-container');
+
+      // 調理機器
+      activeFilters.equipmentIds = Array.from(eqContainer.querySelectorAll('.pill.active')).map(p => p.dataset.id);
+
+      // カテゴリ
+      const activeCat = catContainer.querySelector('.pill.active');
+      activeFilters.category = activeCat ? activeCat.dataset.category : '';
+
+      // ジャンル
+      const activeGen = genContainer.querySelector('.pill.active');
+      activeFilters.genre = activeGen ? activeGen.dataset.genre : '';
+
+      // 調理時間
+      const activeTime = document.querySelector('#filter-time-container .pill.active');
+      activeFilters.timeMax = activeTime ? parseInt(activeTime.dataset.time, 10) : null;
+
+      // タグ
+      activeFilters.tags = Array.from(tagContainer.querySelectorAll('.pill.active')).map(p => p.dataset.tag);
+
+      // ホーム画面のカテゴリクイックピルも同期
+      const homePills = document.getElementById('home-category-pills');
+      homePills.querySelectorAll('.pill').forEach(p => {
+        if (p.dataset.category === activeFilters.category) {
+          p.classList.add('active');
+        } else {
+          p.classList.remove('active');
+        }
+      });
+
+      document.getElementById('filter-overlay').classList.remove('active');
+      renderRecipes();
+    }
+
+    function applyFiltersToUI() {
+      // フィルタ設定に基づいてボトムシート内のアクティブ表示を復元
+      const eqContainer = document.getElementById('filter-equipment-container');
+      const catContainer = document.getElementById('filter-category-container');
+      const genContainer = document.getElementById('filter-genre-container');
+      const tagContainer = document.getElementById('filter-tag-container');
+
+      eqContainer.querySelectorAll('.pill').forEach(p => {
+        p.classList.toggle('active', activeFilters.equipmentIds.includes(p.dataset.id));
+      });
+
+      catContainer.querySelectorAll('.pill').forEach(p => {
+        p.classList.toggle('active', p.dataset.category === activeFilters.category);
+      });
+
+      genContainer.querySelectorAll('.pill').forEach(p => {
+        p.classList.toggle('active', p.dataset.genre === activeFilters.genre);
+      });
+
+      document.querySelectorAll('#filter-time-container .pill').forEach(p => {
+        p.classList.toggle('active', parseInt(p.dataset.time, 10) === activeFilters.timeMax);
+      });
+
+      tagContainer.querySelectorAll('.pill').forEach(p => {
+        p.classList.toggle('active', activeFilters.tags.includes(p.dataset.tag));
+      });
+    }
+
+    function resetFiltersUI() {
+      document.querySelectorAll('.filter-sheet .pill').forEach(p => p.classList.remove('active'));
+      activeFilters = {
+        searchQuery: document.getElementById('input-search').value = '',
+        equipmentIds: [],
+        category: '',
+        genre: '',
+        timeMax: null,
+        tags: []
+      };
+
+      const homePills = document.getElementById('home-category-pills');
+      homePills.querySelectorAll('.pill').forEach(p => {
+        if (p.dataset.category === '') p.classList.add('active');
+        else p.classList.remove('active');
+      });
+    }
+
+    // -------------------------------------------------------------
+    // 管理機能 (Admin Views Logic)
+    // -------------------------------------------------------------
+
+    function initAdminPanel() {
+      const equipCheckboxes = document.getElementById('edit-equipment-checkboxes');
+      equipCheckboxes.innerHTML = '';
+
+      equipmentMaster.forEach(eq => {
+        const label = document.createElement('label');
+        label.style.display = 'flex';
+        label.style.alignItems = 'center';
+        label.style.gap = '8px';
+        label.style.fontSize = '0.9rem';
+        label.innerHTML = `
+          <input type="checkbox" name="admin-equipment" value="${eq.equipmentId}">
+          <span>${eq.name}</span>
+        `;
+        equipCheckboxes.appendChild(label);
+      });
+    }
+
+    // 画像ファイルを読み込み、Base64化する処理
+    function handleImageSelection(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      selectedUploadFileName = file.name;
+      document.getElementById('selected-file-name').textContent = file.name;
+
+      const reader = new FileReader();
+      reader.onload = function (evt) {
+        // フロント側での画像JPEG圧縮処理 (Canvasを使用)
+        const img = new Image();
+        img.onload = function () {
+          const max_width = 1024;
+          const max_height = 1024;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height) {
+            if (width > max_width) {
+              height *= max_width / width;
+              width = max_width;
+            }
+          } else {
+            if (height > max_height) {
+              width *= max_height / height;
+              height = max_height;
+            }
+          }
+
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+
+          // 品質0.75でJPEG圧縮
+          selectedUploadFileBase64 = canvas.toDataURL('image/jpeg', 0.75);
+          document.getElementById('btn-upload-parse').removeAttribute('disabled');
+        };
+        img.src = evt.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    // Gemini解析処理の実行
+    async function startGeminiParse() {
+      if (!selectedUploadFileBase64) return;
+
+      const uploadBtn = document.getElementById('btn-upload-parse');
+      const loader = document.getElementById('parse-loading');
+
+      uploadBtn.style.display = 'none';
+      loader.style.display = 'block';
+
+      try {
+        const adminPin = localStorage.getItem('adminPin');
+
+        // Step 1: 画像のアップロード
+        const uploadResult = await callAPI('uploadRecipeImage', {
+          adminPin: adminPin,
+          fileData: selectedUploadFileBase64,
+          fileName: selectedUploadFileName,
+          type: 'raw',
+          mimeType: 'image/jpeg'
+        });
+
+        // Step 2: Gemini APIでの解析
+        const parseResult = await callAPI('parseRecipeWithGemini', {
+          adminPin: adminPin,
+          fileId: uploadResult.fileId
+        });
+
+        currentDraftId = parseResult.draftId;
+        showDraftEditor(parseResult.parsedRecipe);
+        showToast('Geminiによるレシピ解析が完了しました！下書きを確認してください。');
+      } catch (err) {
+        console.error('Gemini parse error:', err);
+        showToast('画像解析中にエラーが発生しました: ' + err.message, false);
+        uploadBtn.style.display = 'block';
+      } finally {
+        loader.style.display = 'none';
+      }
+    }
+
+    // 下書き編集フォームの表示
+    function showDraftEditor(parsed) {
+      document.getElementById('draft-editor-section').style.display = 'block';
+
+      document.getElementById('edit-title').value = parsed.title || '';
+      document.getElementById('edit-summary').value = parsed.summary || '';
+      document.getElementById('edit-category').value = parsed.category || '主菜';
+      document.getElementById('edit-genre').value = parsed.genre || '和食';
+      document.getElementById('edit-time-min').value = parsed.timeMin || '';
+      document.getElementById('edit-servings').value = parsed.servings || '2人分';
+
+      // 調理機器チェックボックス
+      const equipCheckboxes = document.querySelectorAll('input[name="admin-equipment"]');
+      const pEquip = parsed.equipmentIds || [];
+      equipCheckboxes.forEach(cb => {
+        cb.checked = pEquip.includes(cb.value);
+      });
+
+      // 材料
+      document.getElementById('edit-ingredients').value = JSON.stringify(parsed.ingredientsJson || [], null, 2);
+
+      // 手順
+      const stepsText = (parsed.stepsJson || []).join('\n');
+      document.getElementById('edit-steps').value = stepsText;
+
+      document.getElementById('edit-notes').value = parsed.notes || '';
+    }
+
+    // 下書きの検証と本登録実行
+    async function publishRecipe() {
+      const title = document.getElementById('edit-title').value.trim();
+      const summary = document.getElementById('edit-summary').value.trim();
+      const category = document.getElementById('edit-category').value;
+      const genre = document.getElementById('edit-genre').value;
+      const timeMin = parseInt(document.getElementById('edit-time-min').value, 10) || 0;
+      const servings = document.getElementById('edit-servings').value.trim();
+
+      // 機器のチェック取得
+      const equipmentIds = Array.from(document.querySelectorAll('input[name="admin-equipment"]:checked')).map(cb => cb.value);
+
+      // 材料JSONのパース検証
+      let ingredientsJson = [];
+      try {
+        ingredientsJson = JSON.parse(document.getElementById('edit-ingredients').value);
+      } catch (e) {
+        document.getElementById('draft-validation-error').textContent = '材料データのJSON形式が正しくありません。';
+        return;
+      }
+
+      // 手順のパース
+      const stepsText = document.getElementById('edit-steps').value.trim();
+      const stepsJson = stepsText ? stepsText.split('\n').map(s => s.trim()).filter(Boolean) : [];
+
+      const notes = document.getElementById('edit-notes').value.trim();
+
+      // 必須バリデーション
+      const errors = [];
+      if (!title) errors.push('レシピ名は必須です。');
+      if (!category) errors.push('カテゴリは必須です。');
+      if (ingredientsJson.length === 0) errors.push('材料を1件以上入力してください。');
+      if (stepsJson.length === 0) errors.push('手順を1件以上入力してください。');
+
+      if (errors.length > 0) {
+        document.getElementById('draft-validation-error').innerHTML = errors.join('<br>');
+        return;
+      }
+
+      document.getElementById('draft-validation-error').textContent = '';
+
+      try {
+        const finalRecipe = {
+          title, summary, category, genre, equipmentIds,
+          timeMin, servings, ingredientsJson, stepsJson, notes
+        };
+
+        const adminPin = localStorage.getItem('adminPin');
+
+        await callAPI('publishRecipeDraft', {
+          adminPin: adminPin,
+          draftId: currentDraftId,
+          finalRecipe: finalRecipe
+        });
+
+        showToast('レシピを本登録しました！');
+        document.getElementById('draft-editor-section').style.display = 'none';
+
+        // ファイル情報をリセット
+        document.getElementById('input-recipe-file').value = '';
+        document.getElementById('selected-file-name').textContent = '';
+        document.getElementById('btn-upload-parse').style.display = 'block';
+        document.getElementById('btn-upload-parse').setAttribute('disabled', 'true');
+        selectedUploadFileBase64 = null;
+
+        // レシピ再ロード
+        await loadBootstrap();
+      } catch (err) {
+        showToast('レシピ本登録中にエラーが発生しました: ' + err.message, false);
+      }
+    }
+
+    // -------------------------------------------------------------
+    // App Event Listeners & Logic
+    // -------------------------------------------------------------
+
+    function setupEventListeners() {
+      // 下部ナビゲーション
+      document.querySelectorAll('.nav-item').forEach(item => {
+        item.addEventListener('click', () => {
+          navigateTo(item.getAttribute('data-view'));
+        });
+      });
+
+      // 1. アクセスコード認証
+      document.getElementById('btn-submit-access-code').addEventListener('click', async () => {
+        const code = document.getElementById('input-access-code').value.trim();
+        const errDiv = document.getElementById('error-access-code');
+        errDiv.textContent = '';
+
+        if (!code) {
+          errDiv.textContent = 'コードを入力してください。';
+          return;
+        }
+
+        // ロストレージに一時保存
+        localStorage.setItem('accessCode', code);
+
+        try {
+          // 疎通確認のためのgetBootstrap呼び出し
+          await callAPI('getBootstrap');
+
+          localStorage.setItem('accessCodeVerified', 'true');
+
+          // ログインチェック
+          if (localStorage.getItem('userIdHash')) {
+            navigateTo('home');
+            loadBootstrap();
+          } else {
+            navigateTo('login');
+          }
+        } catch (err) {
+          localStorage.removeItem('accessCode');
+          errDiv.textContent = '認証に失敗しました。正しいアクセスコードを入力してください。';
+        }
+      });
+
+      // 2. 簡易ログイン
+      document.getElementById('btn-submit-login').addEventListener('click', async () => {
+        const key = document.getElementById('input-user-key').value.trim();
+        const errDiv = document.getElementById('error-login');
+        errDiv.textContent = '';
+
+        if (!key) {
+          errDiv.textContent = 'ニックネームを入力してください。';
+          return;
+        }
+
+        const hash = await hashUserKey(key);
+        localStorage.setItem('userKey', key);
+        localStorage.setItem('userIdHash', hash);
+
+        userState.userIdHash = hash;
+        userState.displayName = key;
+
+        // サーバーに登録
+        try {
+          await callAPI('saveUserState', {
+            displayName: key,
+            favoriteRecipeIds: [],
+            favoriteEquipmentIds: [],
+            defaultFilters: {},
+            recentViews: [],
+            recentSearches: []
+          });
+        } catch (e) {
+          console.warn('Could not register user state with server immediately', e);
+        }
+
+        await saveLocalData('userState', userState);
+
+        navigateTo('home');
+        loadBootstrap();
+      });
+
+      // ホーム検索処理
+      document.getElementById('input-search').addEventListener('input', (e) => {
+        activeFilters.searchQuery = e.target.value;
+        renderRecipes();
+      });
+
+      // フィルターシート表示
+      document.getElementById('btn-show-filter').addEventListener('click', () => {
+        applyFiltersToUI();
+        document.getElementById('filter-overlay').classList.add('active');
+      });
+
+      document.getElementById('btn-filter-close').addEventListener('click', () => {
+        document.getElementById('filter-overlay').classList.remove('active');
+      });
+
+      document.getElementById('btn-filter-reset').addEventListener('click', () => {
+        resetFiltersUI();
+      });
+
+      document.getElementById('btn-filter-apply').addEventListener('click', () => {
+        applyFiltersFromUI();
+      });
+
+      document.getElementById('btn-filter-save-default').addEventListener('click', async () => {
+        // 現在のフィルタを既定フィルタとして保存
+        userState.defaultFilters = { ...activeFilters, searchQuery: '' }; // 検索文言は保存しない
+        await saveLocalData('userState', userState);
+
+        if (navigator.onLine) {
+          try {
+            await callAPI('saveUserState', userState);
+          } catch (e) { }
+        }
+        showToast('現在のフィルター条件を保存しました！');
+      });
+
+      // 詳細画面 戻る
+      document.getElementById('btn-detail-back').addEventListener('click', () => {
+        const lastView = localStorage.getItem('lastHomeView') || 'home';
+        navigateTo(lastView);
+      });
+
+      // 詳細画面 お気に入り登録
+      document.getElementById('btn-detail-fav').addEventListener('click', () => {
+        if (currentDetailRecipe) {
+          toggleFavorite(currentDetailRecipe.recipeId);
+        }
+      });
+
+      // 倍率セレクター
+      document.getElementById('select-multiplier').addEventListener('change', (e) => {
+        const multiplier = parseFloat(e.target.value);
+        renderIngredients(multiplier);
+      });
+
+      // 設定 - ユーザー変更
+      document.getElementById('btn-change-user').addEventListener('click', () => {
+        navigateTo('login');
+      });
+
+      // 設定 - キャッシュ同期
+      document.getElementById('btn-clear-cache').addEventListener('click', async () => {
+        if (!navigator.onLine) {
+          showToast('オフライン状態のため再同期はできません。', false);
+          return;
+        }
+
+        document.getElementById('loading-recipes').style.display = 'block';
+        await clearLocalStore('recipes');
+        await loadBootstrap();
+        showToast('キャッシュデータを再同期しました！');
+      });
+
+      // 設定 - 管理画面へ
+      document.getElementById('btn-go-admin').addEventListener('click', () => {
+        navigateTo('admin');
+        const isVerified = localStorage.getItem('adminPinVerified') === 'true';
+        if (isVerified) {
+          document.getElementById('admin-pin-auth-section').style.display = 'none';
+          document.getElementById('admin-main-section').style.display = 'block';
+          initAdminPanel();
+        } else {
+          document.getElementById('admin-pin-auth-section').style.display = 'block';
+          document.getElementById('admin-main-section').style.display = 'none';
+        }
+      });
+
+      // 管理者PIN認証
+      document.getElementById('btn-submit-admin-pin').addEventListener('click', async () => {
+        const pin = document.getElementById('input-admin-pin').value.trim();
+        if (!pin) return;
+
+        try {
+          // 疎通確認のためのモック/APIコール
+          await callAPI('uploadRecipeImage', { adminPin: pin, fileData: 'test' });
+        } catch (e) {
+          // モック時などで 'test' データのCORS/内容エラーはあるかもしれないが、Admin PIN違反なら 'Invalid Admin PIN' になる
+          if (e.message.includes('Invalid Admin PIN')) {
+            showToast('管理者PINが正しくありません。', false);
+            return;
+          }
+        }
+
+        // 認証OK
+        localStorage.setItem('adminPinVerified', 'true');
+        localStorage.setItem('adminPin', pin);
+        document.getElementById('admin-pin-auth-section').style.display = 'none';
+        document.getElementById('admin-main-section').style.display = 'block';
+        initAdminPanel();
+      });
+
+      document.getElementById('btn-admin-back').addEventListener('click', () => {
+        navigateTo('settings');
+      });
+
+      // 画像選択
+      document.getElementById('btn-select-file').addEventListener('click', () => {
+        document.getElementById('input-recipe-file').click();
+      });
+
+      document.getElementById('input-recipe-file').addEventListener('change', handleImageSelection);
+
+      // Gemini解析開始
+      document.getElementById('btn-upload-parse').addEventListener('click', startGeminiParse);
+
+      // レシピ本登録
+      document.getElementById('btn-publish-recipe').addEventListener('click', publishRecipe);
+
+      // スプレッドシート手動バックアップ
+      document.getElementById('btn-backup-now').addEventListener('click', async () => {
+        showToast('バックアップ作成中...');
+        try {
+          const adminPin = localStorage.getItem('adminPin');
+          const res = await callAPI('backupSpreadsheet', { adminPin: adminPin });
+          showToast(`バックアップ完了しました。ファイル名: ${res.backupFileName}`);
+        } catch (e) {
+          showToast('バックアップ失敗しました: ' + e.message, false);
+        }
+      });
+
+      // 買い物リスト関連イベント
+      document.getElementById('btn-show-shopping-add').addEventListener('click', showShoppingAddSheet);
+      document.getElementById('btn-shopping-add-close').addEventListener('click', () => {
+        document.getElementById('shopping-add-overlay').classList.remove('active');
+      });
+      document.getElementById('btn-shopping-select-all').addEventListener('click', () => {
+        document.querySelectorAll('.shopping-add-checkbox').forEach(cb => cb.checked = true);
+      });
+      document.getElementById('btn-shopping-deselect-all').addEventListener('click', () => {
+        document.querySelectorAll('.shopping-add-checkbox').forEach(cb => cb.checked = false);
+      });
+      document.getElementById('btn-shopping-add-submit').addEventListener('click', addIngredientsToShoppingList);
+
+      document.getElementById('btn-shopping-manual-add').addEventListener('click', addManualShoppingItem);
+      document.getElementById('input-shopping-manual').addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') addManualShoppingItem();
+      });
+
+      document.getElementById('btn-shopping-clear-checked').addEventListener('click', clearCheckedShoppingItems);
+      document.getElementById('btn-shopping-clear-all').addEventListener('click', clearAllShoppingItems);
+
+      // オンライン/オフラインの切り替え検知
+      window.addEventListener('online', () => {
+        document.getElementById('offline-banner').style.display = 'none';
+        showToast('オンラインに復帰しました。データを同期します。');
+        loadBootstrap();
+      });
+
+      window.addEventListener('offline', () => {
+        document.getElementById('offline-banner').style.display = 'block';
+        showToast('オフラインモードに切り替わりました。キャッシュを表示します。', false);
+      });
+    }
+
+    // -------------------------------------------------------------
+    // App Initialization
+    // -------------------------------------------------------------
+
+    async function initApp() {
+      // ネットワーク状態監視
+      if (!navigator.onLine) {
+        document.getElementById('offline-banner').style.display = 'block';
+      }
+
+      await initDB();
+      setupEventListeners();
+
+      // ローカルストレージから買い物リストを復元
+      shoppingListState = JSON.parse(localStorage.getItem('shoppingList') || '[]');
+
+      const accessCodeVerified = localStorage.getItem('accessCodeVerified') === 'true';
+      const userIdHash = localStorage.getItem('userIdHash');
+
+      if (!accessCodeVerified) {
+        navigateTo('access-code');
+      } else if (!userIdHash) {
+        navigateTo('login');
+      } else {
+        const lastView = localStorage.getItem('currentView') || 'home';
+        // 不正な画面にリダイレクトされないように制限
+        if (['access-code', 'login', 'detail', 'admin'].includes(lastView)) {
+          navigateTo('home');
+        } else {
+          navigateTo(lastView);
+        }
+        loadBootstrap();
+      }
+    }
+
+    // PWA用のService Worker登録
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('recipe_sw.js')
+          .then(reg => console.log('Service Worker registered', reg))
+          .catch(err => console.error('Service Worker registration failed', err));
+      });
+    }
+
+    // -------------------------------------------------------------
+    // 買い物リスト関連ロジック (Shopping List Functions)
+    // -------------------------------------------------------------
+
+    function saveShoppingList() {
+      localStorage.setItem('shoppingList', JSON.stringify(shoppingListState));
+    }
+
+    // 食材カテゴリ自動判定
+    function judgeIngredientCategory(name) {
+      const n = name.toLowerCase();
+      if (['肉', '豚', '牛', '鶏', 'ソーセージ', 'ハム', '手羽', 'レバー', 'ひき肉', '合挽', 'バラ'].some(k => n.includes(k))) return '肉類';
+      if (['鮭', '海老', 'エビ', 'イカ', 'タコ', '魚', '貝', 'アサリ', '鯖', 'サバ', 'カレイ', 'ツナ', 'シラス'].some(k => n.includes(k))) return '魚介類';
+      if (['ねぎ', 'ネギ', 'にら', 'ニラ', 'キャベツ', '玉ねぎ', 'タマネギ', 'にんじん', 'セロリ', 'にんにく', 'しょうが', 'トマト', 'なす', 'ピーマン', 'じゃがいも', '大根', 'キノコ', 'しめじ', 'もやし', 'ごぼう', 'アボカド', 'レモン', '白菜', 'ローリエ'].some(k => n.includes(k))) return '野菜・きのこ・果物類';
+      if (['しょうゆ', '醤油', '塩', 'こしょう', 'コショウ', '酢', '砂糖', 'みりん', '酒', '油', 'ケチャップ', 'マヨネーズ', 'ソース', 'コンソメ', 'ダシ', 'みそ', '味噌', 'カレー', 'ルー', 'ワイン', 'バター'].some(k => n.includes(k))) return '調味料・糖類';
+      return 'その他食品';
+    }
+
+    // 食材選択ボトムシート表示
+    function showShoppingAddSheet() {
+      if (!currentDetailRecipe) return;
+
+      const container = document.getElementById('shopping-add-items-container');
+      container.innerHTML = '';
+
+      let ingredients = [];
+      try {
+        ingredients = JSON.parse(currentDetailRecipe.ingredientsJson || '[]');
+      } catch (e) { }
+
+      if (ingredients.length === 0) {
+        showToast('追加できる材料がありません', false);
+        return;
+      }
+
+      const multiplier = parseFloat(document.getElementById('select-multiplier').value) || 1.0;
+
+      ingredients.forEach((item, index) => {
+        const div = document.createElement('div');
+        div.className = 'shopping-add-item';
+
+        let displayQty = '';
+        if (item.quantity !== null && !isNaN(item.quantity)) {
+          const calculated = item.quantity * multiplier;
+          const rounded = Math.round(calculated * 100) / 100;
+          displayQty = `${rounded}${item.unit}`;
+        } else {
+          displayQty = item.unit || '';
+        }
+
+        const noteText = item.note ? ` (${item.note})` : '';
+
+        div.innerHTML = `
+          <input type="checkbox" class="shopping-add-checkbox" id="add-ing-${index}" checked style="width:18px; height:18px;">
+          <label for="add-ing-${index}" style="flex-grow:1; display:flex; justify-content:space-between; cursor:pointer;">
+            <span>${item.name}${noteText}</span>
+            <span style="color:var(--primary); font-weight:bold;">${displayQty}</span>
+          </label>
+        `;
+
+        // データの関連付け
+        div.dataset.name = item.name + noteText;
+        div.dataset.qty = displayQty;
+
+        container.appendChild(div);
+      });
+
+      document.getElementById('shopping-add-overlay').classList.add('active');
+    }
+
+    // 選択食材の買い物リストへの追加
+    function addIngredientsToShoppingList() {
+      const checkedItems = document.querySelectorAll('.shopping-add-item');
+      let addedCount = 0;
+
+      checkedItems.forEach(item => {
+        const checkbox = item.querySelector('.shopping-add-checkbox');
+        if (checkbox && checkbox.checked) {
+          const name = item.dataset.name;
+          const qty = item.dataset.qty;
+          const recipeTitle = currentDetailRecipe.title;
+
+          // 重複チェック（同一レシピからの同一アイテムは上書き・スキップ）
+          const existingIdx = shoppingListState.findIndex(s => s.name === name && s.recipeName === recipeTitle);
+
+          const shoppingItem = {
+            id: 'S' + Date.now() + Math.random().toString(36).substr(2, 5),
+            name: name,
+            qty: qty,
+            recipeName: recipeTitle,
+            checked: false,
+            category: judgeIngredientCategory(name)
+          };
+
+          if (existingIdx >= 0) {
+            // 上書き
+            shoppingListState[existingIdx] = shoppingItem;
+          } else {
+            shoppingListState.push(shoppingItem);
+          }
+          addedCount++;
+        }
+      });
+
+      if (addedCount > 0) {
+        saveShoppingList();
+        showToast(`${addedCount}件の食材を買い物リストに追加しました`);
+      }
+
+      document.getElementById('shopping-add-overlay').classList.remove('active');
+    }
+
+    // 買い物リストの描画
+    function renderShoppingList() {
+      const container = document.getElementById('shopping-list-container');
+      const emptyDiv = document.getElementById('empty-shopping');
+      const actionsArea = document.getElementById('shopping-actions-area');
+      container.innerHTML = '';
+
+      if (shoppingListState.length === 0) {
+        emptyDiv.style.display = 'block';
+        actionsArea.style.display = 'none';
+        return;
+      }
+
+      emptyDiv.style.display = 'none';
+      actionsArea.style.display = 'flex';
+
+      // カテゴリ別グループ化
+      const categories = ['野菜・きのこ・果物類', '肉類', '魚介類', '調味料・糖類', 'その他食品'];
+      const grouped = {};
+      categories.forEach(c => grouped[c] = []);
+
+      shoppingListState.forEach(item => {
+        const cat = item.category || 'その他食品';
+        if (!grouped[cat]) grouped[cat] = [];
+        grouped[cat].push(item);
+      });
+
+      // カテゴリ順に描画
+      categories.forEach(cat => {
+        const items = grouped[cat];
+        if (items.length === 0) return;
+
+        // カテゴリヘッダー
+        const header = document.createElement('div');
+        header.className = 'shopping-category-header';
+        header.textContent = `【${cat}】`;
+        container.appendChild(header);
+
+        items.forEach(item => {
+          const row = document.createElement('div');
+          row.className = `shopping-item ${item.checked ? 'checked' : ''}`;
+          row.dataset.id = item.id;
+
+          row.innerHTML = `
+            <div class="shopping-item-left" onclick="toggleShoppingItemChecked('${item.id}')">
+              <div class="shopping-item-checkbox ${item.checked ? 'checked' : ''}">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              </div>
+              <div class="shopping-item-text-container">
+                <span class="shopping-item-name">${item.name}</span>
+                ${item.recipeName ? `<span class="shopping-item-recipe">元: ${item.recipeName}</span>` : '<span class="shopping-item-recipe">手動追加</span>'}
+              </div>
+            </div>
+            <div class="shopping-item-right">
+              <span class="shopping-item-qty">${item.qty || ''}</span>
+              <button class="shopping-item-delete" onclick="deleteShoppingItem('${item.id}')">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+              </button>
+            </div>
+          `;
+          container.appendChild(row);
+        });
+      });
+    }
+
+    // チェック状態トグル
+    function toggleShoppingItemChecked(itemId) {
+      const idx = shoppingListState.findIndex(s => s.id === itemId);
+      if (idx >= 0) {
+        shoppingListState[idx].checked = !shoppingListState[idx].checked;
+        saveShoppingList();
+        renderShoppingList();
+      }
+    }
+
+    // 個別削除
+    function deleteShoppingItem(itemId) {
+      shoppingListState = shoppingListState.filter(s => s.id !== itemId);
+      saveShoppingList();
+      renderShoppingList();
+      showToast('アイテムを削除しました');
+    }
+
+    // 手動追加
+    function addManualShoppingItem() {
+      const input = document.getElementById('input-shopping-manual');
+      const val = input.value.trim();
+      if (!val) return;
+
+      // 数量の分離 (例: "キャベツ 1/2個" などのスペース区切り)
+      let name = val;
+      let qty = '';
+      const parts = val.split(/\s+/);
+      if (parts.length > 1) {
+        // 最後の要素が分量っぽいか判定 (数字や個、g、本などで終わる)
+        const last = parts[parts.length - 1];
+        if (/[0-9個g本枚片大小]/i.test(last)) {
+          qty = last;
+          name = parts.slice(0, -1).join(' ');
+        }
+      }
+
+      const item = {
+        id: 'S' + Date.now() + Math.random().toString(36).substr(2, 5),
+        name: name,
+        qty: qty,
+        recipeName: '', // 手動追加
+        checked: false,
+        category: judgeIngredientCategory(name)
+      };
+
+      shoppingListState.push(item);
+      saveShoppingList();
+      renderShoppingList();
+
+      input.value = '';
+      showToast('買い物リストに追加しました');
+    }
+
+    // チェック済クリア
+    function clearCheckedShoppingItems() {
+      const beforeCount = shoppingListState.length;
+      shoppingListState = shoppingListState.filter(s => !s.checked);
+      const afterCount = shoppingListState.length;
+
+      if (beforeCount !== afterCount) {
+        saveShoppingList();
+        renderShoppingList();
+        showToast('チェック済みのアイテムを削除しました');
+      } else {
+        showToast('チェックされたアイテムがありません', false);
+      }
+    }
+
+    // すべてクリア
+    function clearAllShoppingItems() {
+      if (confirm('買い物リストをすべてクリアしますか？')) {
+        shoppingListState = [];
+        saveShoppingList();
+        renderShoppingList();
+        showToast('買い物リストをクリアしました');
+      }
+    }
+
+    // アプリ起動
+    window.addEventListener('DOMContentLoaded', initApp);
+  </script>
+</body>
+
+</html>

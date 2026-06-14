@@ -1,0 +1,22 @@
+{
+  "short_name": "レシピ参照",
+  "name": "レシピ参照 PWA",
+  "icons": [
+    {
+      "src": "assets/recipe_icon_192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "assets/recipe_icon_512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": "recipe.html",
+  "background_color": "#fdf8f5",
+  "display": "standalone",
+  "scope": "./",
+  "theme_color": "#f97316",
+  "orientation": "portrait"
+}
