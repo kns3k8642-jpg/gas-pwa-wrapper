@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>ストックリスト (PWA Wrapper)</title>
+  
+  <!-- PWA meta tags -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="ストックリスト">
+  <link rel="apple-touch-icon" href="https://lh3.googleusercontent.com/d/1XW_RntLpCjQe1LhTz2_cZJ1-T2GjVn9F=s180">
+  
+  <link rel="manifest" href="stock_manifest.json">
+  
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #fef9f4;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    
+    /* PWA表示用のフルサイズiframe */
+    iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+      margin: 0;
+      padding: 0;
+      display: block;
+    }
+
+    /* iOSのセーフエリア対応 */
+    body {
+      padding-top: env(safe-area-inset-top);
+      padding-bottom: env(safe-area-inset-bottom);
+      box-sizing: border-box;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- GASデプロイされたWebアプリのURLを埋め込む -->
+  <iframe src="https://script.google.com/macros/s/AKfycbzL5nsc-Nl2Lg7oV0t4n8k1R7_9P2vM7s7J-nZJ7k/exec" id="gas-app"></iframe>
+
+  <script>
+    // Service Worker の登録
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('stock_sw.js')
+          .then(reg => console.log('Service Worker registered', reg))
+          .catch(err => console.error('Service Worker registration failed', err));
+      });
+    }
+
+    // iOSのスクロールバウンス対策（PWA感の向上）
+    document.addEventListener('touchmove', function(e) {
+      if (e.target.tagName !== 'IFRAME') {
+        e.preventDefault();
+      }
+    }, { passive: false });
+  </script>
+</body>
+</html>

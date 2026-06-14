@@ -1,0 +1,20 @@
+{
+  "short_name": "ストックリスト",
+  "name": "ストックリスト (GAS PWA Wrapper)",
+  "icons": [
+    {
+      "src": "https://lh3.googleusercontent.com/d/1XW_RntLpCjQe1LhTz2_cZJ1-T2GjVn9F=s192",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "https://lh3.googleusercontent.com/d/1XW_RntLpCjQe1LhTz2_cZJ1-T2GjVn9F=s512",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": "stock.html",
+  "background_color": "#fef9f4",
+  "display": "standalone",
+  "theme_color": "#ffb6b9"
+}
