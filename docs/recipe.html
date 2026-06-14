@@ -1980,6 +1980,8 @@
       if (!recipe) return;
 
       currentDetailRecipe = recipe;
+      // 詳細画面から戻る際の遷移先を記録（ボタン・エッジスワイプ共通）
+      localStorage.setItem('lastHomeView', localStorage.getItem('currentView') || 'home');
       navigateTo('detail');
 
       // 閲覧履歴へ追加
@@ -2940,6 +2942,97 @@
         document.getElementById('offline-banner').style.display = 'block';
         showToast('オフラインモードに切り替わりました。キャッシュを表示します。', false);
       });
+
+      // -------------------------------------------------------
+      // エッジスワイプによるナビゲーション（iOSネイティブ風）
+      // ・画面左端 50px 以内から右スワイプ → 戻る
+      // ・画面右端 50px 以内から左スワイプ → 進む
+      // ・縦スクロールが優先されている間はスワイプ判定をキャンセル
+      // -------------------------------------------------------
+      (function initEdgeSwipe() {
+        // ナビバーのタブ順（data-view 属性と対応）
+        const TAB_ORDER = ['home', 'favorites', 'shopping-list', 'history', 'settings'];
+
+        // スワイプ検知の端から判定する幅 (px)
+        const EDGE_WIDTH = 50;
+        // スワイプとして認識するための最小水平移動量 (px)
+        const MIN_SWIPE_X = 50;
+        // 縦方向の動きがこれを超えたら縦スクロールと判定してキャンセル
+        const MAX_SWIPE_Y = 40;
+
+        let touchStartX = 0;
+        let touchStartY = 0;
+        let swipeEdge = null;   // 'left' | 'right' | null
+        let cancelled = false;  // 縦スクロールでキャンセルされたか
+
+        document.addEventListener('touchstart', (e) => {
+          // ボトムシート系のオーバーレイが開いている場合はスキップ
+          if (document.querySelector('.filter-overlay.active')) return;
+
+          const touch = e.changedTouches[0];
+          touchStartX = touch.clientX;
+          touchStartY = touch.clientY;
+          cancelled = false;
+          swipeEdge = null;
+
+          const screenW = window.innerWidth;
+          if (touchStartX <= EDGE_WIDTH) {
+            swipeEdge = 'left';
+          } else if (touchStartX >= screenW - EDGE_WIDTH) {
+            swipeEdge = 'right';
+          }
+        }, { passive: true });
+
+        document.addEventListener('touchmove', (e) => {
+          if (!swipeEdge || cancelled) return;
+          const touch = e.changedTouches[0];
+          const diffY = Math.abs(touch.clientY - touchStartY);
+          // 縦方向の動きが大きければ縦スクロールと判断してキャンセル
+          if (diffY > MAX_SWIPE_Y) {
+            cancelled = true;
+          }
+        }, { passive: true });
+
+        document.addEventListener('touchend', (e) => {
+          if (!swipeEdge || cancelled) return;
+
+          const touch = e.changedTouches[0];
+          const diffX = touch.clientX - touchStartX;
+          const absDiffX = Math.abs(diffX);
+
+          if (absDiffX < MIN_SWIPE_X) return;
+
+          const currentView = localStorage.getItem('currentView') || 'home';
+
+          // 左端 → 右スワイプ：「戻る」動作
+          if (swipeEdge === 'left' && diffX > 0) {
+            if (currentView === 'detail') {
+              // 詳細画面はホームビューに戻る
+              const lastView = localStorage.getItem('lastHomeView') || 'home';
+              navigateTo(lastView);
+            } else if (currentView === 'admin') {
+              // 管理画面は設定に戻る
+              navigateTo('settings');
+            } else {
+              // タブ画面は左隣のタブへ
+              const idx = TAB_ORDER.indexOf(currentView);
+              if (idx > 0) {
+                navigateTo(TAB_ORDER[idx - 1]);
+              }
+            }
+          }
+
+          // 右端 → 左スワイプ：「進む」動作（タブ画面のみ）
+          if (swipeEdge === 'right' && diffX < 0) {
+            const idx = TAB_ORDER.indexOf(currentView);
+            if (idx >= 0 && idx < TAB_ORDER.length - 1) {
+              navigateTo(TAB_ORDER[idx + 1]);
+            }
+          }
+
+          swipeEdge = null;
+        }, { passive: true });
+      })();
     }
 
     // -------------------------------------------------------------
