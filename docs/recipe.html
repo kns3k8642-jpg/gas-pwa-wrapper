@@ -1539,18 +1539,12 @@
           method: 'POST',
           body: JSON.stringify(body),
           headers: {
-            'Content-Type': 'text/plain;charset=UTF-8'
-          },
-          // iOS Safari ITP対策:
-          // script.google.com → script.googleusercontent.com のリダイレクトを
-          // Safariがクロスサイトトラッカーとして遮断するケースがあるため、
-          // Cookie不送信(credentials:'omit')とリダイレクト追跡(redirect:'follow')を明示する
-          credentials: 'omit',
-          redirect: 'follow'
+            'Content-Type': 'text/plain'
+          }
         });
 
         if (!response.ok) {
-          throw new Error(`API request failed: HTTP ${response.status}`);
+          throw new Error('API request failed');
         }
 
         const json = await response.json();
