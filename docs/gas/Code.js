@@ -642,67 +642,89 @@ function setupBackupTrigger() {
 function syncDriveImages() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const recipeSheet = ss.getSheetByName('Recipes');
-  const recipes = getSheetDataAsObjects('Recipes');
   
   const rootFolder = getOrCreateAppFolder();
   const originalsFolder = getOrCreateSubFolder(rootFolder, 'images/originals');
   
-  // Googleドライブ内のファイルをスキャンしてマップ化
+  // 1. 親フォルダ自体の共有設定を変更（子ファイルは自動的にこの権限を継承するため、ファイル個別設定は不要）
+  try {
+    originalsFolder.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    Logger.log('Parent folder sharing updated to anyone with link.');
+  } catch (e) {
+    Logger.log('Warning on updating parent folder sharing: ' + e.message);
+  }
+  
+  // 2. Googleドライブ内のファイルをスキャンしてマップ化
   const originalFiles = originalsFolder.getFiles();
   const fileMap = {}; // { recipeId: { fileId, url } }
   
   Logger.log('Scanning folder URL: ' + originalsFolder.getUrl());
   
   let scanCount = 0;
+  let matchCount = 0;
   while (originalFiles.hasNext()) {
     const file = originalFiles.next();
     const name = file.getName().toLowerCase(); // 例: mh_1.jpg
     scanCount++;
-    Logger.log('Found file in Drive: ' + file.getName());
-    // recipeId のプレフィックス全種類 (mh, rgkm, rgsk, tfal, ks) に対応
-    const match = name.match(/^(mh_\d+|rgkm_\d+|rgsk_\d+|tfal_\d+|ks_\d+)\.(jpg|jpeg|png)$/i);
+    
+    // panasonic_ubs10d_\d+ を含む全レシピIDプレフィックスに対応
+    const match = name.match(/^(mh_\d+|rgkm_\d+|rgsk_\d+|tfal_\d+|ks_\d+|panasonic_ubs10d_\d+)\.(jpg|jpeg|png)$/i);
     if (match) {
-      const recipeId = match[1].toLowerCase(); // スプレッドシートのrecipeIdに合わせて小文字で統一
-      // 外部からリンクで表示できるよう共有設定を「リンクを知っている全員に閲覧許可」に変更
-      file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+      const recipeId = match[1].toLowerCase();
+      // 個別の file.setSharing() 呼び出しを廃止（これで実行時間を大幅に削減）
       fileMap[recipeId] = {
         fileId: file.getId(),
         url: 'https://lh3.googleusercontent.com/d/' + file.getId()
       };
+      matchCount++;
     }
   }
-  Logger.log('Total files found in folder: ' + scanCount);
+  Logger.log('Total files scanned: ' + scanCount + ', matched recipes: ' + matchCount);
 
-  // スプレッドシートの更新
-  const headers = recipeSheet.getRange(1, 1, 1, recipeSheet.getLastColumn()).getValues()[0];
-  const imgIdColIdx = headers.indexOf('imageFileId') + 1;
-  const imgUrlColIdx = headers.indexOf('imageUrl') + 1;
-  const thumbIdColIdx = headers.indexOf('thumbnailFileId') + 1;
-  const thumbUrlColIdx = headers.indexOf('thumbnailUrl') + 1;
+  // 3. スプレッドシートデータの取得とメモリ上での一括更新
+  const lastRow = recipeSheet.getLastRow();
+  const lastCol = recipeSheet.getLastColumn();
+  if (lastRow < 2) {
+    Logger.log('No recipes found in sheet.');
+    return;
+  }
+  
+  const range = recipeSheet.getRange(1, 1, lastRow, lastCol);
+  const data = range.getValues();
+  const headers = data[0];
+  
+  const recipeIdColIdx = headers.indexOf('recipeId');
+  const imgIdColIdx = headers.indexOf('imageFileId');
+  const imgUrlColIdx = headers.indexOf('imageUrl');
+  const thumbIdColIdx = headers.indexOf('thumbnailFileId');
+  const thumbUrlColIdx = headers.indexOf('thumbnailUrl');
 
-  if (imgIdColIdx === 0 || imgUrlColIdx === 0) {
-    throw new Error('Required image columns (imageFileId or imageUrl) not found in Recipes sheet.');
+  if (recipeIdColIdx === -1 || imgIdColIdx === -1 || imgUrlColIdx === -1) {
+    throw new Error('Required columns (recipeId, imageFileId, imageUrl) not found in Recipes sheet.');
   }
 
   let updateCount = 0;
-  for (let i = 0; i < recipes.length; i++) {
-    const recipe = recipes[i];
-    const rId = (recipe.recipeId || '').toLowerCase(); // fileMapのキーと大文字小文字を合わせる
+  // 2行目（インデックス 1）から各行をループ処理
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    const rId = (row[recipeIdColIdx] || '').toString().toLowerCase();
+    
     if (fileMap[rId]) {
-      const row = i + 2;
       const fileInfo = fileMap[rId];
       
-      recipeSheet.getRange(row, imgIdColIdx).setValue(fileInfo.fileId);
-      recipeSheet.getRange(row, imgUrlColIdx).setValue(fileInfo.url);
+      row[imgIdColIdx] = fileInfo.fileId;
+      row[imgUrlColIdx] = fileInfo.url;
       
       // サムネイル列があればオリジナル画像で初期設定
-      if (thumbIdColIdx > 0) recipeSheet.getRange(row, thumbIdColIdx).setValue(fileInfo.fileId);
-      if (thumbUrlColIdx > 0) recipeSheet.getRange(row, thumbUrlColIdx).setValue(fileInfo.url);
+      if (thumbIdColIdx >= 0) row[thumbIdColIdx] = fileInfo.fileId;
+      if (thumbUrlColIdx >= 0) row[thumbUrlColIdx] = fileInfo.url;
       
       updateCount++;
     }
   }
   
+  // 4. 更新データをスプレッドシートへ一括書き戻し（個別セルのsetValue()を廃止）
+  range.setValues(data);
   Logger.log('Successfully synchronized ' + updateCount + ' images from Drive.');
 }
 
