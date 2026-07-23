@@ -1,0 +1,11 @@
+# 秘密情報・APIキーの誤コミット防止(このリポジトリはPublicのため特に厳格に)
+.env
+*.env
+**/.env
+credentials.json
+**/*credential*
+**/*secret*
+
+# OS/エディタ
+.DS_Store
+Thumbs.db
