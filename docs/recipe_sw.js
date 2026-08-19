@@ -1,6 +1,6 @@
 // v2: recipe.html は常にネットワーク優先で取得し、古い画面コードが
 // 端末に残り続けて詳細画面を不安定にすることを防ぐ。
-const CACHE_NAME = 'recipe-pwa-cache-v2';
+const CACHE_NAME = 'recipe-pwa-cache-v3';
 const urlsToCache = [
   'recipe.html',
   'recipe_manifest.json',

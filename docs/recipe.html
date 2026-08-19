@@ -1457,6 +1457,12 @@
     let selectedUploadFileName = "";
     let currentDraftId = null;
 
+    // 一度に全件の画像カードを生成すると、スマートフォンPWAでメモリ不足による
+    // 再読み込みが起きるため、一覧は段階表示する。
+    const RECIPES_PAGE_SIZE = 48;
+    let recipesDisplayLimit = RECIPES_PAGE_SIZE;
+    let lastRenderedFilterKey = '';
+
     // stale-while-revalidate用: 応答の新旧判定とフィルタ既定値の初回適用制御
     let bootstrapRequestId = 0;
     let defaultFiltersRestored = false;
@@ -1818,6 +1824,12 @@
       const resultTitle = document.getElementById('list-result-title');
       container.innerHTML = '';
 
+      const filterKey = JSON.stringify(activeFilters);
+      if (filterKey !== lastRenderedFilterKey) {
+        recipesDisplayLimit = RECIPES_PAGE_SIZE;
+        lastRenderedFilterKey = filterKey;
+      }
+
       // フィルタリング処理
       const filtered = recipesState.filter(recipe => {
         // キーワード検索
@@ -1876,7 +1888,7 @@
         return;
       }
 
-      filtered.forEach(recipe => {
+      filtered.slice(0, recipesDisplayLimit).forEach(recipe => {
         const card = document.createElement('div');
         card.className = 'recipe-card';
         card.addEventListener('click', () => showRecipeDetail(recipe.recipeId));
@@ -1894,7 +1906,7 @@
         } catch (e) { }
 
         card.innerHTML = `
-          <img class="recipe-card-img" src="${imgUrl}" onerror="this.src='assets/default_recipe.jpg'" alt="${recipe.title}">
+          <img class="recipe-card-img" src="${imgUrl}" loading="lazy" decoding="async" onerror="this.src='assets/default_recipe.jpg'" alt="${recipe.title}">
           <button class="recipe-card-fav ${isFav ? 'active' : ''}" data-id="${recipe.recipeId}">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="${isFav ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
           </button>
@@ -1916,6 +1928,20 @@
 
         container.appendChild(card);
       });
+
+      if (filtered.length > recipesDisplayLimit) {
+        const moreButton = document.createElement('button');
+        moreButton.className = 'btn btn-secondary';
+        moreButton.type = 'button';
+        moreButton.style.gridColumn = '1 / -1';
+        moreButton.style.margin = '8px 0 20px';
+        moreButton.textContent = `さらに表示（残り ${filtered.length - recipesDisplayLimit} 件）`;
+        moreButton.addEventListener('click', () => {
+          recipesDisplayLimit += RECIPES_PAGE_SIZE;
+          renderRecipes();
+        });
+        container.appendChild(moreButton);
+      }
     }
 
     // お気に入り一覧表示
@@ -1939,7 +1965,7 @@
         const imgUrl = recipe.thumbnailUrl || recipe.imageUrl || 'assets/default_recipe.jpg';
 
         card.innerHTML = `
-          <img class="recipe-card-img" src="${imgUrl}" onerror="this.src='assets/default_recipe.jpg'" alt="${recipe.title}">
+          <img class="recipe-card-img" src="${imgUrl}" loading="lazy" decoding="async" onerror="this.src='assets/default_recipe.jpg'" alt="${recipe.title}">
           <div class="recipe-card-content">
             <div class="recipe-card-title">${recipe.title}</div>
             <div class="recipe-card-meta">
@@ -1977,7 +2003,7 @@
         const imgUrl = recipe.thumbnailUrl || recipe.imageUrl || 'assets/default_recipe.jpg';
 
         card.innerHTML = `
-          <img class="recipe-card-img" src="${imgUrl}" onerror="this.src='assets/default_recipe.jpg'" alt="${recipe.title}">
+          <img class="recipe-card-img" src="${imgUrl}" loading="lazy" decoding="async" onerror="this.src='assets/default_recipe.jpg'" alt="${recipe.title}">
           <div class="recipe-card-content">
             <div class="recipe-card-title">${recipe.title}</div>
             <div class="recipe-card-meta">
