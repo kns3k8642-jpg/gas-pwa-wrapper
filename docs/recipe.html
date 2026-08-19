@@ -1457,6 +1457,10 @@
     let selectedUploadFileName = "";
     let currentDraftId = null;
 
+    // stale-while-revalidate用: 応答の新旧判定とフィルタ既定値の初回適用制御
+    let bootstrapRequestId = 0;
+    let defaultFiltersRestored = false;
+
     // -------------------------------------------------------------
     // IndexedDB & Initialization
     // -------------------------------------------------------------
@@ -1490,31 +1494,34 @@
     function getLocalData(storeName, key) {
       return new Promise((resolve) => {
         if (!db) return resolve(null);
-        const transaction = db.transaction(storeName, 'readonly');
-        const store = transaction.objectStore(storeName);
-        const request = store.get(key);
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => resolve(null);
+        try {
+          const transaction = db.transaction(storeName, 'readonly');
+          const store = transaction.objectStore(storeName);
+          const request = store.get(key);
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => resolve(null);
+          transaction.onerror = () => resolve(null);
+          transaction.onabort = () => resolve(null);
+        } catch (err) {
+          console.warn('Could not read local data', storeName, err);
+          resolve(null);
+        }
       });
     }
 
     function saveLocalData(storeName, data) {
-      return new Promise((resolve) => {
+      return new Promise((resolve, reject) => {
         if (!db) return resolve();
-        const transaction = db.transaction(storeName, 'readwrite');
-        const store = transaction.objectStore(storeName);
-        store.put(data);
-        transaction.oncomplete = () => resolve();
-      });
-    }
-
-    function clearLocalStore(storeName) {
-      return new Promise((resolve) => {
-        if (!db) return resolve();
-        const transaction = db.transaction(storeName, 'readwrite');
-        const store = transaction.objectStore(storeName);
-        store.clear();
-        transaction.oncomplete = () => resolve();
+        try {
+          const transaction = db.transaction(storeName, 'readwrite');
+          const store = transaction.objectStore(storeName);
+          store.put(data);
+          transaction.oncomplete = () => resolve();
+          transaction.onerror = () => reject(transaction.error);
+          transaction.onabort = () => reject(transaction.error);
+        } catch (err) {
+          reject(err);
+        }
       });
     }
 
@@ -2168,7 +2175,7 @@
       userState.favoriteRecipeIds = favs;
 
       // ローカル保存
-      await saveLocalData('userState', userState);
+      await saveLocalData('userState', userState).catch(err => console.warn('Could not save local user state', err));
 
       // UI即時更新
       if (localStorage.getItem('currentView') === 'home') renderRecipes();
@@ -2220,7 +2227,7 @@
       }
 
       userState.recentViews = views;
-      await saveLocalData('userState', userState);
+      await saveLocalData('userState', userState).catch(err => console.warn('Could not save local user state', err));
 
       if (navigator.onLine) {
         try {
@@ -2236,92 +2243,211 @@
       }
     }
 
-    // 初期化ロード（BootstrapデータのロードとIndexedDB同期）
-    async function loadBootstrap() {
-      document.getElementById('loading-recipes').style.display = 'block';
+    // -------------------------------------------------------------
+    // Bootstrap: キャッシュ読出し・サーバー同期の小関数群
+    // -------------------------------------------------------------
 
-      try {
-        if (navigator.onLine) {
-          // オンラインならサーバーから最新データをロード
-          const data = await callAPI('getBootstrap');
-
-          recipesState = data.recipes || [];
-          equipmentMaster = data.equipment || [];
-
-          // カテゴリ、ジャンル、タグのクイックアクセス用を初期化
-          initFilterOverlayUI(data);
-
-          // IndexedDBに一括キャッシュ
-          await clearLocalStore('recipes');
-          for (let r of recipesState) {
-            await saveLocalData('recipes', r);
-          }
-
-          // 調理機器マスタなどのメタデータをlocalStorageに一旦保持
-          localStorage.setItem('equipmentMaster', JSON.stringify(equipmentMaster));
-          localStorage.setItem('categories', JSON.stringify(data.categories || []));
-          localStorage.setItem('genres', JSON.stringify(data.genres || []));
-          localStorage.setItem('tags', JSON.stringify(data.tags || []));
-
-          // ユーザー情報も同期
-          const serverState = await callAPI('getUserState');
-          userState = { ...userState, ...serverState };
-          await saveLocalData('userState', userState);
-
-          console.log('Online bootstrap loaded & synchronized local cache');
-        } else {
-          // オフラインならIndexedDBからロード
-          recipesState = await new Promise((resolve) => {
-            const transaction = db.transaction('recipes', 'readonly');
-            const store = transaction.objectStore('recipes');
-            const request = store.getAll();
-            request.onsuccess = () => resolve(request.result || []);
-            request.onerror = () => resolve([]);
-          });
-
-          equipmentMaster = JSON.parse(localStorage.getItem('equipmentMaster') || '[]');
-
-          const categories = JSON.parse(localStorage.getItem('categories') || '[]');
-          const genres = JSON.parse(localStorage.getItem('genres') || '[]');
-          const tags = JSON.parse(localStorage.getItem('tags') || '[]');
-
-          initFilterOverlayUI({
-            categories: categories,
-            genres: genres,
-            tags: tags
-          });
-
-          // ローカルのユーザー情報を読込
-          const localUser = await getLocalData('userState', localStorage.getItem('userIdHash'));
-          if (localUser) {
-            userState = localUser;
-          }
-          console.log('Offline bootstrap loaded from local IndexedDB cache');
-        }
-      } catch (err) {
-        console.error('Bootstrap error, trying to fallback to local DB', err);
-        showToast('データの取得に失敗しました。ローカルキャッシュを表示します。', false);
-
-        // フォールバック
-        recipesState = await new Promise((resolve) => {
-          const transaction = db.transaction('recipes', 'readonly');
-          const store = transaction.objectStore('recipes');
-          const request = store.getAll();
+    // IndexedDBのrecipesストア全件読出し（例外時は空配列）
+    function getAllLocalRecipes() {
+      return new Promise((resolve) => {
+        if (!db) return resolve([]);
+        try {
+          const request = db.transaction('recipes', 'readonly')
+            .objectStore('recipes').getAll();
           request.onsuccess = () => resolve(request.result || []);
           request.onerror = () => resolve([]);
-        });
-        equipmentMaster = JSON.parse(localStorage.getItem('equipmentMaster') || '[]');
+        } catch (err) {
+          console.warn('Could not read local recipes', err);
+          resolve([]);
+        }
+      });
+    }
+
+    // recipesストアを単一トランザクションで置換（clear後の逐次保存による空キャッシュ時間を作らない）
+    function replaceRecipeCache(recipes) {
+      return new Promise((resolve, reject) => {
+        if (!db) return resolve();
+        try {
+          const transaction = db.transaction('recipes', 'readwrite');
+          const store = transaction.objectStore('recipes');
+          store.clear();
+          recipes.forEach(r => store.put(r));
+          transaction.oncomplete = () => resolve();
+          transaction.onerror = () => reject(transaction.error);
+          transaction.onabort = () => reject(transaction.error);
+        } catch (err) {
+          reject(err);
+        }
+      });
+    }
+
+    // localStorageのブートストラップ用メタデータを壊れたJSONでも安全に読む
+    function readBootstrapMetaSafely() {
+      const parseArray = (key) => {
+        try {
+          const parsed = JSON.parse(localStorage.getItem(key) || '[]');
+          return Array.isArray(parsed) ? parsed : [];
+        } catch (err) {
+          console.warn(`Could not parse local "${key}"`, err);
+          return [];
+        }
+      };
+      return {
+        equipment: parseArray('equipmentMaster'),
+        categories: parseArray('categories'),
+        genres: parseArray('genres'),
+        tags: parseArray('tags')
+      };
+    }
+
+    // 現在のユーザーに対応するキャッシュ一式を復元する
+    async function restoreCachedBootstrap() {
+      const recipes = await getAllLocalRecipes();
+      const meta = readBootstrapMetaSafely();
+      const key = localStorage.getItem('userIdHash');
+      const localUser = key ? await getLocalData('userState', key) : null;
+      return { recipes, ...meta, localUser };
+    }
+
+    // キャッシュ内容を画面状態へ反映（サーバー通信は行わない）
+    function commitCachedState(cached) {
+      recipesState = cached.recipes;
+      equipmentMaster = cached.equipment;
+      initFilterOverlayUI({ categories: cached.categories, genres: cached.genres, tags: cached.tags });
+      if (cached.localUser) {
+        userState = cached.localUser;
+      }
+    }
+
+    // サーバー応答を画面状態へ反映。getUserStateが失敗した場合はローカルuserStateを維持する
+    function commitServerState(data, serverState) {
+      recipesState = data.recipes || [];
+      equipmentMaster = data.equipment || [];
+      initFilterOverlayUI(data);
+      if (serverState) {
+        userState = { ...userState, ...serverState };
+      }
+    }
+
+    // 調理機器マスタなどのメタデータをlocalStorageへ保持
+    function saveBootstrapMeta(data) {
+      localStorage.setItem('equipmentMaster', JSON.stringify(data.equipment || []));
+      localStorage.setItem('categories', JSON.stringify(data.categories || []));
+      localStorage.setItem('genres', JSON.stringify(data.genres || []));
+      localStorage.setItem('tags', JSON.stringify(data.tags || []));
+    }
+
+    // フィルタボトムシート・ホームカテゴリピルの両方をactiveFiltersへ同期する
+    function syncFilterUIFromState() {
+      applyFiltersToUI();
+      const homePills = document.getElementById('home-category-pills');
+      homePills.querySelectorAll('.pill').forEach(p => {
+        p.classList.toggle('active', p.dataset.category === activeFilters.category);
+      });
+    }
+
+    // 前回のユーザー既定フィルターを、このアプリ起動中に一度だけ適用する
+    function restoreDefaultFiltersOnceAtStartup() {
+      if (defaultFiltersRestored) return;
+      defaultFiltersRestored = true;
+      if (userState.defaultFilters && Object.keys(userState.defaultFilters).length > 0) {
+        activeFilters = { ...activeFilters, ...userState.defaultFilters };
+        syncFilterUIFromState();
+      }
+    }
+
+    // 表示中の画面（home/favorites）だけを、スクロール位置を保ったまま再描画する
+    function renderCurrentRecipeViewPreservingScroll() {
+      const currentView = localStorage.getItem('currentView') || 'home';
+      if (currentView !== 'home' && currentView !== 'favorites') return;
+
+      const viewEl = document.getElementById('view-' + currentView);
+      const scrollTop = viewEl ? viewEl.scrollTop : 0;
+
+      if (currentView === 'home') renderRecipes();
+      if (currentView === 'favorites') renderFavorites();
+
+      if (viewEl) {
+        const maxScroll = Math.max(0, viewEl.scrollHeight - viewEl.clientHeight);
+        viewEl.scrollTop = Math.min(scrollTop, maxScroll);
+      }
+    }
+
+    // getBootstrap/getUserStateをサーバーへ取得し、状態・UI・キャッシュへcommitする
+    async function refreshFromServer(requestId, { render }) {
+      const bootstrapPromise = callAPI('getBootstrap');
+      const userStatePromise = callAPI('getUserState').catch(err => ({ __error: err }));
+
+      const data = await bootstrapPromise;
+      const userStateResult = await userStatePromise;
+      let serverState = null;
+      if (userStateResult && userStateResult.__error) {
+        console.warn('getUserState failed; keeping local state', userStateResult.__error);
+      } else {
+        serverState = userStateResult;
+      }
+
+      if (requestId !== bootstrapRequestId) return; // 古い応答は状態にもDBにも反映しない
+
+      commitServerState(data, serverState);
+      syncFilterUIFromState();
+      if (render) renderCurrentRecipeViewPreservingScroll();
+
+      try {
+        await replaceRecipeCache(recipesState);
+        if (requestId !== bootstrapRequestId) return;
+        saveBootstrapMeta(data);
+        await saveLocalData('userState', userState);
+      } catch (err) {
+        console.warn('Bootstrap cache persistence failed', err);
+      }
+    }
+
+    // 初期化ロード（BootstrapデータのロードとIndexedDB同期）
+    // mode: 'stale-while-revalidate'（既定・起動系）| 'network-first'（本登録・再同期）| 'revalidate-only'（online復帰）
+    async function loadBootstrap({ mode = 'stale-while-revalidate' } = {}) {
+      const requestId = ++bootstrapRequestId;
+      const cached = await restoreCachedBootstrap();
+      if (requestId !== bootstrapRequestId) return; // 復元中により新しい更新が始まった
+      const hasCache = cached.recipes.length > 0;
+
+      if (mode === 'stale-while-revalidate' && hasCache) {
+        commitCachedState(cached);
+        restoreDefaultFiltersOnceAtStartup();
+        renderCurrentRecipeViewPreservingScroll();
+        void refreshFromServer(requestId, { render: true })
+          .catch(err => console.warn('Background bootstrap refresh failed', err));
+        return;
+      }
+
+      if (mode === 'revalidate-only') {
+        if (!navigator.onLine) return;
+        void refreshFromServer(requestId, { render: true })
+          .catch(err => console.warn('Online revalidation failed', err));
+        return;
+      }
+
+      // network-first、またはキャッシュなしの通常起動
+      document.getElementById('loading-recipes').style.display = 'block';
+      try {
+        if (!navigator.onLine) {
+          commitCachedState(cached);
+          restoreDefaultFiltersOnceAtStartup();
+          renderCurrentRecipeViewPreservingScroll();
+          return;
+        }
+        await refreshFromServer(requestId, { render: true });
+      } catch (err) {
+        console.error('Bootstrap error, trying to fallback to local cache', err);
+        commitCachedState(cached);
+        restoreDefaultFiltersOnceAtStartup();
+        renderCurrentRecipeViewPreservingScroll();
+        if (!hasCache && mode !== 'network-first') showToast('データの取得に失敗しました。', false);
+        if (mode === 'network-first') throw err; // await呼び出し側が扱えるようにする
+        return; // 起動・背景系のvoid呼び出しでrejectionを残さない
       } finally {
         document.getElementById('loading-recipes').style.display = 'none';
       }
-
-      // 前回のユーザー既定フィルターがあれば復元
-      if (userState.defaultFilters && Object.keys(userState.defaultFilters).length > 0) {
-        activeFilters = { ...activeFilters, ...userState.defaultFilters };
-        applyFiltersToUI();
-      }
-
-      renderRecipes();
     }
 
     // フィルター画面のオプションUIの動的構築
@@ -2693,8 +2819,13 @@
         document.getElementById('btn-upload-parse').setAttribute('disabled', 'true');
         selectedUploadFileBase64 = null;
 
-        // レシピ再ロード
-        await loadBootstrap();
+        // レシピ再ロード（本登録自体は成功しているため、失敗時は別メッセージで区別する）
+        try {
+          await loadBootstrap({ mode: 'network-first' });
+        } catch (reloadErr) {
+          console.warn('Post-publish bootstrap refresh failed', reloadErr);
+          showToast('レシピは登録されましたが、一覧の更新に失敗しました。設定画面から再同期してください。', false);
+        }
       } catch (err) {
         showToast('レシピ本登録中にエラーが発生しました: ' + err.message, false);
       }
@@ -2735,7 +2866,7 @@
           // ログインチェック
           if (localStorage.getItem('userIdHash')) {
             navigateTo('home');
-            loadBootstrap();
+            void loadBootstrap({ mode: 'stale-while-revalidate' });
           } else {
             navigateTo('login');
           }
@@ -2777,10 +2908,10 @@
           console.warn('Could not register user state with server immediately', e);
         }
 
-        await saveLocalData('userState', userState);
+        await saveLocalData('userState', userState).catch(err => console.warn('Could not save local user state', err));
 
         navigateTo('home');
-        loadBootstrap();
+        void loadBootstrap({ mode: 'stale-while-revalidate' });
       });
 
       // ホーム検索処理
@@ -2810,7 +2941,7 @@
       document.getElementById('btn-filter-save-default').addEventListener('click', async () => {
         // 現在のフィルタを既定フィルタとして保存
         userState.defaultFilters = { ...activeFilters, searchQuery: '' }; // 検索文言は保存しない
-        await saveLocalData('userState', userState);
+        await saveLocalData('userState', userState).catch(err => console.warn('Could not save local user state', err));
 
         if (navigator.onLine) {
           try {
@@ -2851,10 +2982,12 @@
           return;
         }
 
-        document.getElementById('loading-recipes').style.display = 'block';
-        await clearLocalStore('recipes');
-        await loadBootstrap();
-        showToast('キャッシュデータを再同期しました！');
+        try {
+          await loadBootstrap({ mode: 'network-first' });
+          showToast('キャッシュデータを再同期しました！');
+        } catch (err) {
+          showToast('キャッシュの再同期に失敗しました: ' + err.message, false);
+        }
       });
 
       // 設定 - 管理画面へ
@@ -2949,7 +3082,7 @@
       window.addEventListener('online', () => {
         document.getElementById('offline-banner').style.display = 'none';
         showToast('オンラインに復帰しました。データを同期します。');
-        loadBootstrap();
+        void loadBootstrap({ mode: 'revalidate-only' });
       });
 
       window.addEventListener('offline', () => {
@@ -3231,7 +3364,7 @@
         } else {
           navigateTo(lastView);
         }
-        loadBootstrap();
+        void loadBootstrap({ mode: 'stale-while-revalidate' });
       }
     }
 

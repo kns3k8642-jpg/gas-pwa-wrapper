@@ -1,4 +1,6 @@
-const CACHE_NAME = 'recipe-pwa-cache-v1';
+// v2: recipe.html は常にネットワーク優先で取得し、古い画面コードが
+// 端末に残り続けて詳細画面を不安定にすることを防ぐ。
+const CACHE_NAME = 'recipe-pwa-cache-v2';
 const urlsToCache = [
   'recipe.html',
   'recipe_manifest.json',
@@ -43,6 +45,15 @@ self.addEventListener('fetch', event => {
     event.request.url.includes('googleusercontent.com') ||
     event.request.method !== 'GET'
   ) {
+    return;
+  }
+
+  // HTMLナビゲーションはオンライン時に必ず最新の画面を使用する。
+  // 失敗時だけ、直近のアプリシェルへフォールバックする。
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request).catch(() => caches.match('recipe.html'))
+    );
     return;
   }
 

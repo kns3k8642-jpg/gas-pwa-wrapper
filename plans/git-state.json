@@ -1,0 +1,23 @@
+{
+  "workspace_kind": "existing_repo",
+  "topic_id": "recipe-pwa-stability",
+  "remote": "kns3k8642-jpg/gas-pwa-wrapper",
+  "branch": "master",
+  "auth_state": "ready",
+  "milestone": "implementation_complete",
+  "push_policy": "ask_each_milestone",
+  "last_commit": null,
+  "last_push": null,
+  "last_gate": {
+    "at": "2026-08-19T12:00:00+09:00",
+    "diff_summary": [
+      "docs/recipe.html / IndexedDB bootstrap race and persistence error handling",
+      "docs/recipe_sw.js / cache version upgrade and network-first HTML navigation",
+      "docs/gas/Code.js / pre-existing spreadsheet and image-repair changes excluded from this PWA commit"
+    ],
+    "secret_scan": "pass",
+    "scope_scan": "pass: no raw/web changes and no files over 50MB",
+    "test_result": "JavaScript syntax check passed; public API checked: dt recipes=655, invalid JSON=0; dt_002 detail rendered in public PWA"
+  },
+  "last_error": null
+}
