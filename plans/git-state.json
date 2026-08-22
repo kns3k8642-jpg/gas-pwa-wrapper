@@ -6,8 +6,8 @@
   "auth_state": "ready",
   "milestone": "implementation_complete",
   "push_policy": "ask_each_milestone",
-  "last_commit": null,
-  "last_push": null,
+  "last_commit": "459a36a 2026-08-22T22:18:08+09:00",
+  "last_push": "2026-08-22T22:18:08+09:00",
   "last_gate": {
     "at": "2026-08-22T00:00:00+09:00",
     "diff_summary": [
@@ -17,7 +17,7 @@
     ],
     "secret_scan": "pass",
     "scope_scan": "pass: no raw/web changes and no files over 50MB",
-    "test_result": "JavaScript syntax check passed; public PWA verification pending after GitHub Pages deployment"
+    "test_result": "JavaScript syntax check passed; public PWA verified: list=1351, cards=1351, load-more=0, detail=春の七草粥 (6 steps), console errors=0"
   },
   "last_error": null
 }
