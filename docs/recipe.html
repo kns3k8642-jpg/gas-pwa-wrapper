@@ -1003,7 +1003,7 @@
 
       <h2 style="font-size: 1.1rem; margin-top: 8px; margin-bottom: 12px;" id="list-result-title">レシピ一覧</h2>
 
-      <div id="loading-recipes" class="loading-spinner"></div>
+      <div id="loading-recipes" class="loading-spinner" style="display: none;"></div>
       <div class="recipe-grid" id="recipes-container">
         <!-- 動的にカードが挿入される -->
       </div>
@@ -1522,6 +1522,9 @@
       { key: 'eggSoy', label: '卵・大豆製品' }
     ];
 
+    // タグが増え過ぎないよう、フィルターには一定数以上のレシピで使われるものだけを出す。
+    const MIN_TAG_FILTER_RECIPE_COUNT = 20;
+
     function parseJsonArray(value) {
       if (Array.isArray(value)) return value;
       if (!value) return [];
@@ -1595,6 +1598,32 @@
         getRecipeIngredientText(recipe)
       ].join(' ').toLowerCase();
       return searchableText.includes(normalized);
+    }
+
+    function getFilterableTagOptions(recipes) {
+      const counts = new Map();
+      recipes.forEach(recipe => {
+        try {
+          JSON.parse(recipe.tagsJson || '[]').forEach(tag => {
+            const normalizedTag = String(tag || '').trim();
+            if (!normalizedTag) return;
+            counts.set(normalizedTag, (counts.get(normalizedTag) || 0) + 1);
+          });
+        } catch (e) {
+          // 壊れたタグJSONのレシピは、タグフィルターの集計から除外する。
+        }
+      });
+
+      return Array.from(counts.entries())
+        .filter(([, count]) => count >= MIN_TAG_FILTER_RECIPE_COUNT)
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'ja'))
+        .map(([tag, count]) => ({ tag, count }));
+    }
+
+    function discardHiddenTagFilters() {
+      if (recipesState.length === 0 || activeFilters.tags.length === 0) return;
+      const visibleTags = new Set(getFilterableTagOptions(recipesState).map(option => option.tag));
+      activeFilters.tags = activeFilters.tags.filter(tag => visibleTags.has(tag));
     }
 
     function getProteinArrangements(recipe) {
@@ -1989,6 +2018,7 @@
     function renderRecipes() {
       const container = document.getElementById('recipes-container');
       const resultTitle = document.getElementById('list-result-title');
+      discardHiddenTagFilters();
       container.innerHTML = '';
 
       // フィルタリング処理
@@ -2616,6 +2646,7 @@
         commitCachedState(cached);
         restoreDefaultFiltersOnceAtStartup();
         renderCurrentRecipeViewPreservingScroll();
+        document.getElementById('loading-recipes').style.display = 'none';
         void refreshFromServer(requestId, { render: true })
           .catch(err => console.warn('Background bootstrap refresh failed', err));
         return;
@@ -2735,12 +2766,12 @@
         proteinContainer.appendChild(btn);
       });
 
-      // タグ
-      const tags = data.tags || [];
-      tags.forEach(tag => {
+      // タグ: 実際に20件以上で使われているタグだけを、使用数の多い順に表示する。
+      const tags = getFilterableTagOptions(recipesState);
+      tags.forEach(({ tag, count }) => {
         const btn = document.createElement('button');
         btn.className = 'pill';
-        btn.textContent = `#${tag}`;
+        btn.textContent = `#${tag} (${count})`;
         btn.dataset.tag = tag;
         btn.addEventListener('click', () => {
           btn.classList.toggle('active');
