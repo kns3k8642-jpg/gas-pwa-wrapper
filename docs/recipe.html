@@ -1457,12 +1457,6 @@
     let selectedUploadFileName = "";
     let currentDraftId = null;
 
-    // 一度に全件の画像カードを生成すると、スマートフォンPWAでメモリ不足による
-    // 再読み込みが起きるため、一覧は段階表示する。
-    const RECIPES_PAGE_SIZE = 48;
-    let recipesDisplayLimit = RECIPES_PAGE_SIZE;
-    let lastRenderedFilterKey = '';
-
     // stale-while-revalidate用: 応答の新旧判定とフィルタ既定値の初回適用制御
     let bootstrapRequestId = 0;
     let defaultFiltersRestored = false;
@@ -1824,12 +1818,6 @@
       const resultTitle = document.getElementById('list-result-title');
       container.innerHTML = '';
 
-      const filterKey = JSON.stringify(activeFilters);
-      if (filterKey !== lastRenderedFilterKey) {
-        recipesDisplayLimit = RECIPES_PAGE_SIZE;
-        lastRenderedFilterKey = filterKey;
-      }
-
       // フィルタリング処理
       const filtered = recipesState.filter(recipe => {
         // キーワード検索
@@ -1888,7 +1876,9 @@
         return;
       }
 
-      filtered.slice(0, recipesDisplayLimit).forEach(recipe => {
+      // 一覧はフィルター結果を全件表示する。画像は遅延読込のまま維持するため、
+      // 「さらに表示」なしでも初回の画像転送量は抑えられる。
+      filtered.forEach(recipe => {
         const card = document.createElement('div');
         card.className = 'recipe-card';
         card.addEventListener('click', () => showRecipeDetail(recipe.recipeId));
@@ -1929,19 +1919,6 @@
         container.appendChild(card);
       });
 
-      if (filtered.length > recipesDisplayLimit) {
-        const moreButton = document.createElement('button');
-        moreButton.className = 'btn btn-secondary';
-        moreButton.type = 'button';
-        moreButton.style.gridColumn = '1 / -1';
-        moreButton.style.margin = '8px 0 20px';
-        moreButton.textContent = `さらに表示（残り ${filtered.length - recipesDisplayLimit} 件）`;
-        moreButton.addEventListener('click', () => {
-          recipesDisplayLimit += RECIPES_PAGE_SIZE;
-          renderRecipes();
-        });
-        container.appendChild(moreButton);
-      }
     }
 
     // お気に入り一覧表示
@@ -3125,7 +3102,7 @@
         const TAB_ORDER = ['home', 'favorites', 'shopping-list', 'history', 'settings'];
 
         // 設定値
-        const EDGE_WIDTH = 50;       // エッジ判定の幅 (詳細画面・管理画面用)
+        const EDGE_WIDTH = 80;       // エッジ判定の幅 (詳細画面・管理画面用)
         const SWIPE_THRESHOLD = 0.25; // 遷移を確定する移動距離の割合（画面幅に対する比率）
         const FLICK_VELOCITY = 0.5;  // フリックと判定する速度しきい値 (px/ms)
 

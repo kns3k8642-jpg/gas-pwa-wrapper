@@ -9,15 +9,15 @@
   "last_commit": null,
   "last_push": null,
   "last_gate": {
-    "at": "2026-08-19T12:00:00+09:00",
+    "at": "2026-08-22T00:00:00+09:00",
     "diff_summary": [
-      "docs/recipe.html / IndexedDB bootstrap race and persistence error handling",
-      "docs/recipe_sw.js / cache version upgrade and network-first HTML navigation",
+      "docs/recipe.html / remove the explicit load-more control and restore full filtered list rendering",
+      "docs/recipe.html / widen detail and admin edge-back swipe from 50px to 80px",
       "docs/gas/Code.js / pre-existing spreadsheet and image-repair changes excluded from this PWA commit"
     ],
     "secret_scan": "pass",
     "scope_scan": "pass: no raw/web changes and no files over 50MB",
-    "test_result": "JavaScript syntax check passed; public API checked: dt recipes=655, invalid JSON=0; dt_002 detail rendered in public PWA"
+    "test_result": "JavaScript syntax check passed; public PWA verification pending after GitHub Pages deployment"
   },
   "last_error": null
 }
