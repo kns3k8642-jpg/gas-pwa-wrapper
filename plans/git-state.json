@@ -6,18 +6,18 @@
   "auth_state": "ready",
   "milestone": "implementation_complete",
   "push_policy": "ask_each_milestone",
-  "last_commit": "03dcea8 2026-08-22T22:18:08+09:00",
-  "last_push": "2026-08-22T22:18:08+09:00",
+  "last_commit": "2bebae2 2026-08-22T23:00:00+09:00",
+  "last_push": "2bebae2 scheduled for approved master push",
   "last_gate": {
-    "at": "2026-08-22T00:00:00+09:00",
+    "at": "2026-08-22T23:00:00+09:00",
     "diff_summary": [
-      "docs/recipe.html / normalize primary proteins from existing ingredient fields for search and filtering",
-      "docs/recipe.html / add separately displayed conservative meat-substitution guidance at recipe detail bottom",
-      "docs/gas/Code.js / pre-existing spreadsheet and image-repair changes remain excluded from this PWA commit"
+      "docs/recipe.html / show only tags used by at least 20 recipes, with the matching count",
+      "docs/recipe.html / remove the stale list spinner after cached bootstrap rendering",
+      "docs/gas/Code.js / pre-existing change remains excluded from both commits"
     ],
-    "secret_scan": "pass: repository scanner unavailable; fallback credential-pattern scan clean",
+    "secret_scan": "pass: repository scanner unavailable; fallback credential-marker scan clean",
     "scope_scan": "pass: no raw/web changes and no files over 50MB",
-    "test_result": "8 primary-protein search/arrangement cases passed; JavaScript syntax check passed; authenticated public-data test pending after deploy"
+    "test_result": "20/19 tag threshold test passed; cached-spinner guard passed; JavaScript syntax check passed"
   },
   "last_error": null
 }
