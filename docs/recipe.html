@@ -603,6 +603,37 @@
       padding-top: 2px;
     }
 
+    /* 主食材のアレンジ候補 */
+    .protein-arrangements {
+      background-color: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+    }
+
+    .protein-arrangement-item {
+      padding: 10px 0;
+      border-bottom: 1px dashed var(--border);
+    }
+
+    .protein-arrangement-item:last-child {
+      border-bottom: none;
+      padding-bottom: 0;
+    }
+
+    .protein-arrangement-title {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+
+    .protein-arrangement-note {
+      margin-top: 4px;
+      font-size: 0.82rem;
+      line-height: 1.45;
+      color: var(--text-muted);
+    }
+
     /* ボトムシート風フィルター */
     .filter-overlay {
       position: fixed;
@@ -1157,6 +1188,15 @@
         <h2 style="font-size: 1.2rem; margin-bottom: 8px;">コツ・ポイント</h2>
         <p id="detail-recipe-notes" style="font-size: 0.95rem; line-height: 1.5; color: var(--text-muted);"></p>
       </div>
+
+      <div id="detail-protein-arrangements-section" style="display: none; margin-top: 20px;">
+        <div class="section-divider"></div>
+        <h2 style="font-size: 1.2rem; margin-bottom: 8px;">アレンジ候補</h2>
+        <p style="margin: 0 0 12px; font-size: 0.85rem; line-height: 1.45; color: var(--text-muted);">
+          主食材を替える目安です。肉の厚みや脂の量に合わせて、火の通し方を調整してください。
+        </p>
+        <div id="detail-protein-arrangements-container" class="protein-arrangements"></div>
+      </div>
     </div>
   </div>
 
@@ -1370,6 +1410,11 @@
         <!-- 動的 -->
       </div>
 
+      <div class="filter-section-title">主食材</div>
+      <div class="filter-options" id="filter-protein-container">
+        <!-- 動的 -->
+      </div>
+
       <div class="filter-section-title">調理時間</div>
       <div class="filter-options" id="filter-time-container">
         <button class="pill" data-time="10">10分以内</button>
@@ -1437,7 +1482,8 @@
       category: '',
       genre: '',
       timeMax: null,
-      tags: []
+      tags: [],
+      proteinKeys: []
     };
 
     let shoppingListState = [];
@@ -1460,6 +1506,133 @@
     // stale-while-revalidate用: 応答の新旧判定とフィルタ既定値の初回適用制御
     let bootstrapRequestId = 0;
     let defaultFiltersRestored = false;
+
+    // タグとは別に、材料欄から主食材を判定するための定義。
+    // ここを検索に使うため、既存のレシピ行へタグを大量に追記する必要はない。
+    const PROTEIN_FILTERS = [
+      { key: 'pork', label: '豚肉' },
+      { key: 'chicken', label: '鶏肉' },
+      { key: 'chickenThigh', label: '鶏もも肉' },
+      { key: 'chickenBreast', label: '鶏むね肉' },
+      { key: 'salmon', label: '鮭・サーモン' },
+      { key: 'mackerel', label: 'サバ' },
+      { key: 'fish', label: '魚介' },
+      { key: 'beef', label: '牛肉' },
+      { key: 'groundMeat', label: 'ひき肉' },
+      { key: 'eggSoy', label: '卵・大豆製品' }
+    ];
+
+    function parseJsonArray(value) {
+      if (Array.isArray(value)) return value;
+      if (!value) return [];
+      try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (e) {
+        return [];
+      }
+    }
+
+    function getRecipeIngredientText(recipe) {
+      const keywordText = parseJsonArray(recipe.ingredientKeywordsJson).join(' ');
+      const ingredientText = parseJsonArray(recipe.ingredientsJson)
+        .map(item => `${item.name || ''} ${item.note || ''}`)
+        .join(' ');
+      return `${keywordText} ${ingredientText}`.toLowerCase();
+    }
+
+    function getRecipeProteinKeys(recipe) {
+      const text = getRecipeIngredientText(recipe);
+      const keys = new Set();
+      if (/豚/.test(text)) keys.add('pork');
+      if (/鶏|鳥/.test(text)) {
+        keys.add('chicken');
+        if (/鶏もも|鳥もも/.test(text)) keys.add('chickenThigh');
+        if (/鶏むね|鶏胸|鳥むね|鳥胸/.test(text)) keys.add('chickenBreast');
+      }
+      if (/鮭|サーモン/.test(text)) {
+        keys.add('salmon');
+        keys.add('fish');
+      }
+      if (/鯖|さば/.test(text)) {
+        keys.add('mackerel');
+        keys.add('fish');
+      }
+      if (/たら|タラ|ぶり|ブリ|まぐろ|マグロ|かれい|カレイ|いわし|イワシ|あじ|アジ|さんま|サンマ|しらす|ししゃも|えび|エビ|海老|いか|イカ|たこ|タコ|ほたて|ホタテ|あさり|牡蠣|かき/.test(text)) keys.add('fish');
+      if (/牛/.test(text)) keys.add('beef');
+      if (/ひき肉|挽き肉|ミンチ/.test(text)) keys.add('groundMeat');
+      if (/卵|豆腐|厚揚げ|油揚げ|納豆|大豆|おから/.test(text)) keys.add('eggSoy');
+      return keys;
+    }
+
+    function proteinKeysForSearchQuery(query) {
+      const normalized = String(query || '').trim().toLowerCase();
+      if (!normalized) return [];
+      if (/豚|ポーク/.test(normalized)) return ['pork'];
+      if (/鶏もも|鳥もも/.test(normalized)) return ['chickenThigh'];
+      if (/鶏むね|鶏胸|鳥むね|鳥胸/.test(normalized)) return ['chickenBreast'];
+      if (/鶏|鳥|チキン/.test(normalized)) return ['chicken'];
+      if (/鮭|サーモン/.test(normalized)) return ['salmon'];
+      if (/鯖|さば/.test(normalized)) return ['mackerel'];
+      if (/魚|魚介|シーフード/.test(normalized)) return ['fish'];
+      if (/牛|ビーフ/.test(normalized)) return ['beef'];
+      if (/ひき肉|挽き肉|ミンチ/.test(normalized)) return ['groundMeat'];
+      if (/卵|豆腐|大豆/.test(normalized)) return ['eggSoy'];
+      return [];
+    }
+
+    function recipeMatchesSearchQuery(recipe, query) {
+      const proteinKeys = proteinKeysForSearchQuery(query);
+      if (proteinKeys.length > 0) {
+        const recipeProteinKeys = getRecipeProteinKeys(recipe);
+        return proteinKeys.some(key => recipeProteinKeys.has(key));
+      }
+
+      const normalized = String(query || '').toLowerCase();
+      const searchableText = [
+        recipe.title || '',
+        recipe.summary || '',
+        getRecipeIngredientText(recipe)
+      ].join(' ').toLowerCase();
+      return searchableText.includes(normalized);
+    }
+
+    function getProteinArrangements(recipe) {
+      const text = getRecipeIngredientText(recipe);
+      const keys = getRecipeProteinKeys(recipe);
+      const titleAndIngredients = `${recipe.title || ''} ${text}`;
+      const arrangements = [];
+      const isThinPorkDish = keys.has('pork') && /豚こま|豚バラ|豚ロース|豚肩ロース|薄切り/.test(text) && !/角煮|チャーシュー|スペアリブ|とんかつ|カツ|ベーコン|ソーセージ|ハム|豚骨/.test(titleAndIngredients);
+
+      if (isThinPorkDish) {
+        if (!/豚こま/.test(text)) {
+          arrangements.push({
+            title: '豚こま肉に置き換え可',
+            note: '豚バラやロース薄切りの代わりに使えます。脂が少ない分、仕上がりが軽くなります。'
+          });
+        }
+        arrangements.push({
+          title: '鶏もも肉に置き換え可',
+          note: '炒め物・煮物向きです。ひと口大にし、中心まで火が通るよう加熱時間を調整してください。'
+        });
+      }
+
+      if (keys.has('chickenThigh')) {
+        arrangements.push({
+          title: '鶏むね肉に置き換え可',
+          note: '脂が少なく淡白な仕上がりになります。そぎ切りにして、加熱しすぎないのが目安です。'
+        });
+      }
+
+      if (keys.has('chickenBreast')) {
+        arrangements.push({
+          title: '鶏もも肉に置き換え可',
+          note: 'よりジューシーな仕上がりになります。皮を使う場合は余分な脂を調整してください。'
+        });
+      }
+
+      return arrangements;
+    }
 
     // -------------------------------------------------------------
     // IndexedDB & Initialization
@@ -1822,19 +1995,7 @@
       const filtered = recipesState.filter(recipe => {
         // キーワード検索
         if (activeFilters.searchQuery) {
-          const query = activeFilters.searchQuery.toLowerCase();
-          const matchesTitle = recipe.title.toLowerCase().includes(query);
-          const matchesSummary = (recipe.summary || '').toLowerCase().includes(query);
-
-          let matchesKeywords = false;
-          if (recipe.ingredientKeywordsJson) {
-            try {
-              const keywords = JSON.parse(recipe.ingredientKeywordsJson);
-              matchesKeywords = keywords.some(k => k.toLowerCase().includes(query));
-            } catch (e) { }
-          }
-
-          if (!matchesTitle && !matchesSummary && !matchesKeywords) return false;
+          if (!recipeMatchesSearchQuery(recipe, activeFilters.searchQuery)) return false;
         }
 
         // 調理機器
@@ -1864,10 +2025,17 @@
           } catch (e) { return false; }
         }
 
+        // 主食材（材料欄に明記された食材だけを対象にする）
+        if ((activeFilters.proteinKeys || []).length > 0) {
+          const recipeProteinKeys = getRecipeProteinKeys(recipe);
+          const hasProteinMatch = activeFilters.proteinKeys.some(key => recipeProteinKeys.has(key));
+          if (!hasProteinMatch) return false;
+        }
+
         return true;
       });
 
-      resultTitle.textContent = activeFilters.searchQuery || activeFilters.category || activeFilters.genre || activeFilters.equipmentIds.length > 0
+      resultTitle.textContent = activeFilters.searchQuery || activeFilters.category || activeFilters.genre || activeFilters.equipmentIds.length > 0 || (activeFilters.proteinKeys || []).length > 0
         ? `検索結果: ${filtered.length} 件`
         : `レシピ一覧 (${filtered.length} 件)`;
 
@@ -2082,12 +2250,42 @@
         notesSection.style.display = 'none';
       }
 
+      // 元レシピと検索結果は混ぜず、代替できる主食材だけを詳細の末尾に表示する。
+      renderProteinArrangements(recipe);
+
       // 倍率初期化
       document.getElementById('select-multiplier').value = "1.0";
 
       // 材料・手順描画
       renderIngredients(1.0);
       renderSteps();
+    }
+
+    function renderProteinArrangements(recipe) {
+      const section = document.getElementById('detail-protein-arrangements-section');
+      const container = document.getElementById('detail-protein-arrangements-container');
+      const arrangements = getProteinArrangements(recipe);
+      container.innerHTML = '';
+
+      if (arrangements.length === 0) {
+        section.style.display = 'none';
+        return;
+      }
+
+      arrangements.forEach(arrangement => {
+        const item = document.createElement('div');
+        item.className = 'protein-arrangement-item';
+        const title = document.createElement('div');
+        title.className = 'protein-arrangement-title';
+        title.textContent = arrangement.title;
+        const note = document.createElement('div');
+        note.className = 'protein-arrangement-note';
+        note.textContent = arrangement.note;
+        item.appendChild(title);
+        item.appendChild(note);
+        container.appendChild(item);
+      });
+      section.style.display = 'block';
     }
 
     // 材料分量計算・描画ロジック
@@ -2458,11 +2656,13 @@
       const eqContainer = document.getElementById('filter-equipment-container');
       const catContainer = document.getElementById('filter-category-container');
       const genContainer = document.getElementById('filter-genre-container');
+      const proteinContainer = document.getElementById('filter-protein-container');
       const tagContainer = document.getElementById('filter-tag-container');
 
       eqContainer.innerHTML = '';
       catContainer.innerHTML = '';
       genContainer.innerHTML = '';
+      proteinContainer.innerHTML = '';
       tagContainer.innerHTML = '';
 
       // カテゴリピル（ホーム画面の上部クイックフィルタ）
@@ -2523,6 +2723,18 @@
         genContainer.appendChild(btn);
       });
 
+      // 主食材: レシピの材料欄をその場で判定するため、マスタタグへの追加は不要。
+      PROTEIN_FILTERS.forEach(protein => {
+        const btn = document.createElement('button');
+        btn.className = 'pill';
+        btn.textContent = protein.label;
+        btn.dataset.protein = protein.key;
+        btn.addEventListener('click', () => {
+          btn.classList.toggle('active');
+        });
+        proteinContainer.appendChild(btn);
+      });
+
       // タグ
       const tags = data.tags || [];
       tags.forEach(tag => {
@@ -2542,6 +2754,7 @@
       const eqContainer = document.getElementById('filter-equipment-container');
       const catContainer = document.getElementById('filter-category-container');
       const genContainer = document.getElementById('filter-genre-container');
+      const proteinContainer = document.getElementById('filter-protein-container');
       const tagContainer = document.getElementById('filter-tag-container');
 
       // 調理機器
@@ -2558,6 +2771,9 @@
       // 調理時間
       const activeTime = document.querySelector('#filter-time-container .pill.active');
       activeFilters.timeMax = activeTime ? parseInt(activeTime.dataset.time, 10) : null;
+
+      // 主食材
+      activeFilters.proteinKeys = Array.from(proteinContainer.querySelectorAll('.pill.active')).map(p => p.dataset.protein);
 
       // タグ
       activeFilters.tags = Array.from(tagContainer.querySelectorAll('.pill.active')).map(p => p.dataset.tag);
@@ -2581,6 +2797,7 @@
       const eqContainer = document.getElementById('filter-equipment-container');
       const catContainer = document.getElementById('filter-category-container');
       const genContainer = document.getElementById('filter-genre-container');
+      const proteinContainer = document.getElementById('filter-protein-container');
       const tagContainer = document.getElementById('filter-tag-container');
 
       eqContainer.querySelectorAll('.pill').forEach(p => {
@@ -2599,6 +2816,10 @@
         p.classList.toggle('active', parseInt(p.dataset.time, 10) === activeFilters.timeMax);
       });
 
+      proteinContainer.querySelectorAll('.pill').forEach(p => {
+        p.classList.toggle('active', (activeFilters.proteinKeys || []).includes(p.dataset.protein));
+      });
+
       tagContainer.querySelectorAll('.pill').forEach(p => {
         p.classList.toggle('active', activeFilters.tags.includes(p.dataset.tag));
       });
@@ -2612,7 +2833,8 @@
         category: '',
         genre: '',
         timeMax: null,
-        tags: []
+        tags: [],
+        proteinKeys: []
       };
 
       const homePills = document.getElementById('home-category-pills');
