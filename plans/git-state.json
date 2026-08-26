@@ -6,18 +6,18 @@
   "auth_state": "ready",
   "milestone": "implementation_complete",
   "push_policy": "ask_each_milestone",
-  "last_commit": "2bebae2 2026-08-22T23:00:00+09:00",
-  "last_push": "0759ff7 confirmed on origin/master 2026-08-22T23:00:00+09:00",
+  "last_commit": "f281fbe 2026-08-26 implementation_complete",
+  "last_push": "f281fbe scheduled for approved master push",
   "last_gate": {
-    "at": "2026-08-22T23:00:00+09:00",
+    "at": "2026-08-26T00:00:00+09:00",
     "diff_summary": [
-      "docs/recipe.html / show only tags used by at least 20 recipes, with the matching count",
-      "docs/recipe.html / remove the stale list spinner after cached bootstrap rendering",
-      "docs/gas/Code.js / pre-existing change remains excluded from both commits"
+      "docs/recipe.html / persist search, filters, active recipe, and scroll positions locally across PWA backgrounding",
+      "docs/recipe.html / map Android and browser back-forward history to in-app detail and list navigation",
+      "docs/gas/Code.js / pre-existing change remains excluded from this release"
     ],
     "secret_scan": "pass: repository scanner unavailable; fallback credential-marker scan clean",
     "scope_scan": "pass: no raw/web changes and no files over 50MB",
-    "test_result": "20/19 tag threshold test passed; cached-spinner guard passed; JavaScript syntax check passed"
+    "test_result": "resume-state storage test passed; home-detail-back-forward history test passed; JavaScript syntax check passed"
   },
   "last_error": null
 }
