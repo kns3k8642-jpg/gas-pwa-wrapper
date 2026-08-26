@@ -6,18 +6,18 @@
   "auth_state": "ready",
   "milestone": "implementation_complete",
   "push_policy": "ask_each_milestone",
-  "last_commit": "f281fbe 2026-08-26 implementation_complete",
-  "last_push": "f3f77c7 confirmed on origin/master and GitHub Pages 2026-08-26",
+  "last_commit": "23017a6 2026-08-26 implementation_complete",
+  "last_push": "23017a6 approved for master push",
   "last_gate": {
     "at": "2026-08-26T00:00:00+09:00",
     "diff_summary": [
-      "docs/recipe.html / persist search, filters, active recipe, and scroll positions locally across PWA backgrounding",
-      "docs/recipe.html / map Android and browser back-forward history to in-app detail and list navigation",
+      "docs/recipe.html / clear all transient swipe styles on each view transition and hand detail edge back to Android history",
+      "docs/recipe.html / extract concatenated ingredient aliases and require all extracted search terms (AND)",
       "docs/gas/Code.js / pre-existing change remains excluded from this release"
     ],
     "secret_scan": "pass: repository scanner unavailable; fallback credential-marker scan clean",
     "scope_scan": "pass: no raw/web changes and no files over 50MB",
-    "test_result": "resume-state storage test passed; home-detail-back-forward history test passed; JavaScript syntax check passed"
+    "test_result": "ingredient AND and alias search test passed; navigation reset contract passed; JavaScript syntax check passed"
   },
   "last_error": null
 }
