@@ -1512,6 +1512,7 @@
     let resumeStateApplied = false;
     let resumeStateSaveTimer = null;
     let pendingHistoryState = null;
+    let viewNavigationId = 0;
 
     // タグとは別に、材料欄から主食材を判定するための定義。
     // ここを検索に使うため、既存のレシピ行へタグを大量に追記する必要はない。
@@ -1531,6 +1532,27 @@
     // タグが増え過ぎないよう、フィルターには一定数以上のレシピで使われるものだけを出す。
     const MIN_TAG_FILTER_RECIPE_COUNT = 20;
 
+    // 食材名の表記ゆれを吸収する検索辞書。追加はこの配列だけで行える。
+    const INGREDIENT_SEARCH_ALIASES = [
+      { key: 'pork-coma', patterns: ['豚こま', '豚小間', '豚コマ', 'こま切れ', '小間切れ'] },
+      { key: 'pork', patterns: ['豚肉', '豚', 'ポーク', 'ぶた'] },
+      { key: 'chicken-thigh', patterns: ['鶏もも肉', '鶏もも', '鳥もも肉', '鳥もも'] },
+      { key: 'chicken-breast', patterns: ['鶏むね肉', '鶏胸肉', '鶏むね', '鶏胸', '鳥むね肉', '鳥胸肉'] },
+      { key: 'chicken', patterns: ['鶏肉', '鶏', '鳥肉', '鳥', 'チキン'] },
+      { key: 'beef', patterns: ['牛肉', '牛', 'ビーフ'] },
+      { key: 'ground-meat', patterns: ['ひき肉', '挽き肉', 'ミンチ'] },
+      { key: 'carrot', patterns: ['人参', 'にんじん', 'キャロット'] },
+      { key: 'onion', patterns: ['玉ねぎ', '玉ネギ', 'たまねぎ', 'たまネギ', 'オニオン'] },
+      { key: 'potato', patterns: ['じゃがいも', 'じゃが芋', 'ジャガイモ', '馬鈴薯', 'ポテト'] },
+      { key: 'cabbage', patterns: ['キャベツ', 'きゃべつ'] },
+      { key: 'daikon', patterns: ['大根', 'だいこん'] },
+      { key: 'green-onion', patterns: ['長ねぎ', '長ネギ', 'ねぎ', 'ネギ'] },
+      { key: 'salmon', patterns: ['鮭', 'さけ', 'サーモン'] },
+      { key: 'mackerel', patterns: ['鯖', 'さば', 'サバ'] },
+      { key: 'tofu', patterns: ['豆腐', 'とうふ'] },
+      { key: 'egg', patterns: ['卵', 'たまご', '玉子', 'エッグ'] }
+    ];
+
     function parseJsonArray(value) {
       if (Array.isArray(value)) return value;
       if (!value) return [];
@@ -1540,6 +1562,50 @@
       } catch (e) {
         return [];
       }
+    }
+
+    function normalizeSearchText(value) {
+      return String(value || '')
+        .normalize('NFKC')
+        .toLowerCase()
+        .replace(/[ァ-ヶ]/g, char => String.fromCharCode(char.charCodeAt(0) - 0x60))
+        .replace(/[\s　、,，・／/＿_-]+/g, ' ')
+        .trim();
+    }
+
+    function getIngredientSearchTerms(query) {
+      const normalized = normalizeSearchText(query);
+      if (!normalized) return [];
+
+      const candidates = [];
+      INGREDIENT_SEARCH_ALIASES.forEach(alias => {
+        const patterns = alias.patterns.map(normalizeSearchText).filter(Boolean);
+        patterns.forEach(pattern => {
+          let fromIndex = 0;
+          while (fromIndex < normalized.length) {
+            const index = normalized.indexOf(pattern, fromIndex);
+            if (index === -1) break;
+            candidates.push({ index, length: pattern.length, key: alias.key, patterns });
+            fromIndex = index + pattern.length;
+          }
+        });
+      });
+
+      // 同じ場所に短い別名が重なる場合は、より具体的な語を優先する。
+      candidates.sort((a, b) => a.index - b.index || b.length - a.length);
+      const occupied = new Array(normalized.length).fill(false);
+      const terms = [];
+      candidates.forEach(candidate => {
+        const overlaps = occupied.slice(candidate.index, candidate.index + candidate.length).some(Boolean);
+        if (overlaps) return;
+        occupied.fill(true, candidate.index, candidate.index + candidate.length);
+        if (!terms.some(term => term.key === candidate.key)) terms.push({ key: candidate.key, variants: candidate.patterns });
+      });
+
+      const remaining = normalized.split('').map((char, index) => occupied[index] ? ' ' : char).join('');
+      remaining.split(' ').map(term => term.trim()).filter(term => term && !['と', 'の', 'and', '&'].includes(term))
+        .forEach(term => terms.push({ key: `literal:${term}`, variants: [term] }));
+      return terms;
     }
 
     function normalizeResumeFilters(filters) {
@@ -1740,19 +1806,17 @@
     }
 
     function recipeMatchesSearchQuery(recipe, query) {
-      const proteinKeys = proteinKeysForSearchQuery(query);
-      if (proteinKeys.length > 0) {
-        const recipeProteinKeys = getRecipeProteinKeys(recipe);
-        return proteinKeys.some(key => recipeProteinKeys.has(key));
-      }
-
-      const normalized = String(query || '').toLowerCase();
-      const searchableText = [
+      const terms = getIngredientSearchTerms(query);
+      if (terms.length === 0) return true;
+      const searchableText = normalizeSearchText([
         recipe.title || '',
         recipe.summary || '',
-        getRecipeIngredientText(recipe)
-      ].join(' ').toLowerCase();
-      return searchableText.includes(normalized);
+        getRecipeIngredientText(recipe),
+        parseJsonArray(recipe.tagsJson).join(' ')
+      ].join(' '));
+
+      // スペースの有無に関わらず、見つかった食材語はすべて含むAND検索にする。
+      return terms.every(term => term.variants.some(variant => searchableText.includes(variant)));
     }
 
     function getFilterableTagOptions(recipes) {
@@ -2113,15 +2177,20 @@
 
     function navigateTo(viewId, { historyMode = 'push' } = {}) {
       saveResumeState();
+      const navigationId = ++viewNavigationId;
       document.querySelectorAll('.view').forEach(v => {
-        v.classList.remove('active');
+        v.classList.remove('active', 'swiping', 'transitioning');
+        v.style.display = 'none';
+        v.style.transform = '';
+        v.style.opacity = '';
+        v.style.zIndex = '';
       });
       const targetView = document.getElementById('view-' + viewId);
       if (targetView) {
         targetView.style.display = 'flex';
         // トランジションが滑らかになるようにsetTimeoutを使用
         setTimeout(() => {
-          targetView.classList.add('active');
+          if (navigationId === viewNavigationId) targetView.classList.add('active');
         }, 50);
       }
 
@@ -3533,7 +3602,7 @@
       // -------------------------------------------------------
       // シームレスなスワイプナビゲーション（インタラクティブ遷移）
       // ・画面端以外でのタブ間左右スワイプ（並行スライド）
-      // ・画面左端からの右スワイプによる詳細・管理画面からの戻り（アンカバー効果）
+      // ・管理画面だけは画面左端からの右スワイプで戻る（詳細画面はAndroid標準の戻る履歴へ委譲）
       // -------------------------------------------------------
       (function initSwipeNavigation() {
         const TAB_ORDER = ['home', 'favorites', 'shopping-list', 'history', 'settings'];
@@ -3557,6 +3626,19 @@
         let targetEl = null;
         let transitionType = '';      // 'slide' (並行スライド) | 'uncover' (詳細から戻る)
         let isEdgeStart = false;      // タッチがエッジから始まったか
+
+        function resetSwipePresentation() {
+          [currentEl, targetEl].filter(Boolean).forEach(element => {
+            element.classList.remove('swiping', 'transitioning');
+            element.style.display = '';
+            element.style.transform = '';
+            element.style.opacity = '';
+            element.style.zIndex = '';
+          });
+          currentEl = null;
+          targetEl = null;
+          transitionType = '';
+        }
 
         document.addEventListener('touchstart', (e) => {
           // モーダルやフィルターオーバーレイが開いている場合はスキップ
@@ -3608,11 +3690,10 @@
               transitionType = '';
 
               if (currentViewId === 'detail') {
-                // 詳細画面からは「左端からの右スワイプ（エッジスワイプ）」のみ許可
-                if (diffX > 0 && isEdgeStart && startX <= EDGE_WIDTH) {
-                  targetViewId = localStorage.getItem('lastHomeView') || 'home';
-                  transitionType = 'uncover';
-                }
+                // 詳細画面の左端はAndroid標準の戻るジェスチャーへ委譲する。
+                // 独自アニメーションとpopstateが競合すると、画面が重なって操作不能になるため。
+                isScrollCancelled = true;
+                return;
               } else if (currentViewId === 'admin') {
                 // 管理画面からは「左端からの右スワイプ（エッジスワイプ）」のみ設定へ戻る
                 if (diffX > 0 && isEdgeStart && startX <= EDGE_WIDTH) {
@@ -3696,6 +3777,12 @@
           }
         }, { passive: false });
 
+        document.addEventListener('touchcancel', () => {
+          isSwiping = false;
+          isScrollCancelled = true;
+          resetSwipePresentation();
+        }, { passive: true });
+
         document.addEventListener('touchend', (e) => {
           if (!isSwiping) return;
           
@@ -3736,11 +3823,7 @@
               
               setTimeout(() => {
                 cleanupStyles();
-                if (transitionType === 'uncover' && currentViewId === 'detail') {
-                  goBackWithinApp(targetViewId);
-                } else {
-                  navigateTo(targetViewId);
-                }
+                navigateTo(targetViewId);
               }, 350);
             } else {
               // キャンセル（スナップバック）時の元の位置に戻す
@@ -3755,23 +3838,12 @@
               
               setTimeout(() => {
                 cleanupStyles();
-                targetEl.style.display = 'none';
               }, 350);
             }
           }
           
           function cleanupStyles() {
-            if (currentEl) {
-              currentEl.classList.remove('transitioning');
-              currentEl.style.transform = '';
-              currentEl.style.zIndex = '';
-            }
-            if (targetEl) {
-              targetEl.classList.remove('transitioning');
-              targetEl.style.transform = '';
-              targetEl.style.opacity = '';
-              targetEl.style.zIndex = '';
-            }
+            resetSwipePresentation();
           }
         }, { passive: true });
       })();
