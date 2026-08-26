@@ -1506,6 +1506,12 @@
     // stale-while-revalidate用: 応答の新旧判定とフィルタ既定値の初回適用制御
     let bootstrapRequestId = 0;
     let defaultFiltersRestored = false;
+    const RESUME_STATE_KEY = 'recipeAppResumeStateV1';
+    const RESUMABLE_VIEWS = new Set(['home', 'favorites', 'shopping-list', 'history', 'settings', 'detail']);
+    let resumeState = null;
+    let resumeStateApplied = false;
+    let resumeStateSaveTimer = null;
+    let pendingHistoryState = null;
 
     // タグとは別に、材料欄から主食材を判定するための定義。
     // ここを検索に使うため、既存のレシピ行へタグを大量に追記する必要はない。
@@ -1533,6 +1539,155 @@
         return Array.isArray(parsed) ? parsed : [];
       } catch (e) {
         return [];
+      }
+    }
+
+    function normalizeResumeFilters(filters) {
+      const source = filters && typeof filters === 'object' ? filters : {};
+      return {
+        searchQuery: String(source.searchQuery || ''),
+        equipmentIds: Array.isArray(source.equipmentIds) ? source.equipmentIds : [],
+        category: String(source.category || ''),
+        genre: String(source.genre || ''),
+        timeMax: Number.isFinite(source.timeMax) ? source.timeMax : null,
+        tags: Array.isArray(source.tags) ? source.tags : [],
+        proteinKeys: Array.isArray(source.proteinKeys) ? source.proteinKeys : []
+      };
+    }
+
+    function readResumeState() {
+      try {
+        const stored = JSON.parse(localStorage.getItem(RESUME_STATE_KEY) || 'null');
+        if (!stored || !RESUMABLE_VIEWS.has(stored.view)) return null;
+        return stored;
+      } catch (e) {
+        localStorage.removeItem(RESUME_STATE_KEY);
+        return null;
+      }
+    }
+
+    function saveResumeState() {
+      const view = localStorage.getItem('currentView') || 'home';
+      if (!RESUMABLE_VIEWS.has(view)) return;
+
+      const scrollPositions = {};
+      RESUMABLE_VIEWS.forEach(viewId => {
+        const viewEl = document.getElementById('view-' + viewId);
+        if (viewEl) scrollPositions[viewId] = viewEl.scrollTop || 0;
+      });
+
+      localStorage.setItem(RESUME_STATE_KEY, JSON.stringify({
+        view,
+        detailRecipeId: view === 'detail' && currentDetailRecipe ? currentDetailRecipe.recipeId : null,
+        lastHomeView: localStorage.getItem('lastHomeView') || 'home',
+        filters: normalizeResumeFilters(activeFilters),
+        scrollPositions,
+        savedAt: Date.now()
+      }));
+    }
+
+    function scheduleResumeStateSave() {
+      clearTimeout(resumeStateSaveTimer);
+      resumeStateSaveTimer = setTimeout(saveResumeState, 120);
+    }
+
+    function prepareResumeStateAtStartup() {
+      resumeState = readResumeState();
+      if (!resumeState) return null;
+
+      activeFilters = normalizeResumeFilters(resumeState.filters);
+      const searchInput = document.getElementById('input-search');
+      if (searchInput) searchInput.value = activeFilters.searchQuery;
+      if (resumeState.lastHomeView && RESUMABLE_VIEWS.has(resumeState.lastHomeView)) {
+        localStorage.setItem('lastHomeView', resumeState.lastHomeView);
+      }
+      return resumeState;
+    }
+
+    function restoreScrollPosition(viewId, scrollTop) {
+      if (!Number.isFinite(scrollTop)) return;
+      requestAnimationFrame(() => {
+        const viewEl = document.getElementById('view-' + viewId);
+        if (!viewEl) return;
+        viewEl.scrollTop = Math.min(scrollTop, Math.max(0, viewEl.scrollHeight - viewEl.clientHeight));
+        saveResumeState();
+      });
+    }
+
+    function restoreResumedViewIfReady() {
+      if (!resumeState || resumeStateApplied) return;
+      const { view, detailRecipeId, scrollPositions = {} } = resumeState;
+
+      if (view === 'detail') {
+        if (!detailRecipeId || !recipesState.some(recipe => recipe.recipeId === detailRecipeId)) return;
+        resumeStateApplied = true;
+        showRecipeDetail(detailRecipeId, {
+          recordHistory: false,
+          preserveLastHomeView: true,
+          restoreScrollTop: scrollPositions.detail
+        });
+        return;
+      }
+
+      if (!RESUMABLE_VIEWS.has(view)) return;
+      resumeStateApplied = true;
+      if (localStorage.getItem('currentView') !== view) navigateTo(view);
+      restoreScrollPosition(view, scrollPositions[view]);
+    }
+
+    function getAppHistoryState(viewId) {
+      return {
+        recipePwa: true,
+        view: viewId,
+        detailRecipeId: viewId === 'detail' && currentDetailRecipe ? currentDetailRecipe.recipeId : null
+      };
+    }
+
+    function updateAppHistory(viewId, mode = 'push') {
+      if (!RESUMABLE_VIEWS.has(viewId) || mode === 'none') return;
+      const nextState = getAppHistoryState(viewId);
+      try {
+        const currentState = history.state;
+        const isSameView = currentState && currentState.recipePwa &&
+          currentState.view === nextState.view && currentState.detailRecipeId === nextState.detailRecipeId;
+        if (mode === 'replace' || isSameView) history.replaceState(nextState, '', location.href);
+        else history.pushState(nextState, '', location.href);
+      } catch (e) {
+        console.warn('Could not update app navigation history', e);
+      }
+    }
+
+    function applyAppHistoryState(state) {
+      if (!state || !state.recipePwa || !RESUMABLE_VIEWS.has(state.view)) return;
+      if (state.view === 'detail') {
+        if (!state.detailRecipeId || !recipesState.some(recipe => recipe.recipeId === state.detailRecipeId)) {
+          pendingHistoryState = state;
+          navigateTo('home', { historyMode: 'none' });
+          return;
+        }
+        showRecipeDetail(state.detailRecipeId, {
+          recordHistory: false,
+          preserveLastHomeView: true,
+          historyMode: 'none'
+        });
+        return;
+      }
+      navigateTo(state.view, { historyMode: 'none' });
+    }
+
+    function restorePendingHistoryStateIfReady() {
+      if (!pendingHistoryState) return;
+      const state = pendingHistoryState;
+      pendingHistoryState = null;
+      applyAppHistoryState(state);
+    }
+
+    function goBackWithinApp(fallbackView) {
+      const state = history.state;
+      if (state && state.recipePwa && state.view === 'detail') {
+        history.back();
+      } else {
+        navigateTo(fallbackView, { historyMode: 'replace' });
       }
     }
 
@@ -1956,7 +2111,8 @@
     // Routing & Views Controller
     // -------------------------------------------------------------
 
-    function navigateTo(viewId) {
+    function navigateTo(viewId, { historyMode = 'push' } = {}) {
+      saveResumeState();
       document.querySelectorAll('.view').forEach(v => {
         v.classList.remove('active');
       });
@@ -1986,6 +2142,7 @@
       }
 
       localStorage.setItem('currentView', viewId);
+      updateAppHistory(viewId, historyMode);
 
       // 画面固有の描画処理
       if (viewId === 'home') renderRecipes();
@@ -1993,6 +2150,7 @@
       if (viewId === 'shopping-list') renderShoppingList();
       if (viewId === 'history') renderHistory();
       if (viewId === 'settings') renderSettings();
+      saveResumeState();
     }
 
     // -------------------------------------------------------------
@@ -2197,17 +2355,19 @@
     }
 
     // レシピ詳細表示
-    function showRecipeDetail(recipeId) {
+    function showRecipeDetail(recipeId, { recordHistory = true, preserveLastHomeView = false, restoreScrollTop = null, historyMode = 'push' } = {}) {
       const recipe = recipesState.find(r => r.recipeId === recipeId);
       if (!recipe) return;
 
       currentDetailRecipe = recipe;
       // 詳細画面から戻る際の遷移先を記録（ボタン・エッジスワイプ共通）
-      localStorage.setItem('lastHomeView', localStorage.getItem('currentView') || 'home');
-      navigateTo('detail');
+      if (!preserveLastHomeView) {
+        localStorage.setItem('lastHomeView', localStorage.getItem('currentView') || 'home');
+      }
+      navigateTo('detail', { historyMode });
 
       // 閲覧履歴へ追加
-      addToHistory(recipeId);
+      if (recordHistory) addToHistory(recipeId);
 
       // UI反映
       document.getElementById('detail-recipe-image').src = recipe.imageUrl || 'assets/default_recipe.jpg';
@@ -2289,6 +2449,8 @@
       // 材料・手順描画
       renderIngredients(1.0);
       renderSteps();
+      restoreScrollPosition('detail', restoreScrollTop);
+      saveResumeState();
     }
 
     function renderProteinArrangements(recipe) {
@@ -2581,6 +2743,7 @@
     function restoreDefaultFiltersOnceAtStartup() {
       if (defaultFiltersRestored) return;
       defaultFiltersRestored = true;
+      if (resumeState) return;
       if (userState.defaultFilters && Object.keys(userState.defaultFilters).length > 0) {
         activeFilters = { ...activeFilters, ...userState.defaultFilters };
         syncFilterUIFromState();
@@ -2623,6 +2786,8 @@
       commitServerState(data, serverState);
       syncFilterUIFromState();
       if (render) renderCurrentRecipeViewPreservingScroll();
+      restorePendingHistoryStateIfReady();
+      restoreResumedViewIfReady();
 
       try {
         await replaceRecipeCache(recipesState);
@@ -2645,7 +2810,10 @@
       if (mode === 'stale-while-revalidate' && hasCache) {
         commitCachedState(cached);
         restoreDefaultFiltersOnceAtStartup();
+        syncFilterUIFromState();
         renderCurrentRecipeViewPreservingScroll();
+        restorePendingHistoryStateIfReady();
+        restoreResumedViewIfReady();
         document.getElementById('loading-recipes').style.display = 'none';
         void refreshFromServer(requestId, { render: true })
           .catch(err => console.warn('Background bootstrap refresh failed', err));
@@ -2736,6 +2904,7 @@
           homeBtn.classList.add('active');
           activeFilters.category = cat;
           renderRecipes();
+          scheduleResumeStateSave();
         });
         homePills.appendChild(homeBtn);
       });
@@ -2821,6 +2990,7 @@
 
       document.getElementById('filter-overlay').classList.remove('active');
       renderRecipes();
+      scheduleResumeStateSave();
     }
 
     function applyFiltersToUI() {
@@ -2871,8 +3041,9 @@
       const homePills = document.getElementById('home-category-pills');
       homePills.querySelectorAll('.pill').forEach(p => {
         if (p.dataset.category === '') p.classList.add('active');
-        else p.classList.remove('active');
+          else p.classList.remove('active');
       });
+      scheduleResumeStateSave();
     }
 
     // -------------------------------------------------------------
@@ -3174,6 +3345,7 @@
       document.getElementById('input-search').addEventListener('input', (e) => {
         activeFilters.searchQuery = e.target.value;
         renderRecipes();
+        scheduleResumeStateSave();
       });
 
       // フィルターシート表示
@@ -3205,12 +3377,24 @@
           } catch (e) { }
         }
         showToast('現在のフィルター条件を保存しました！');
+        saveResumeState();
+      });
+
+      document.querySelectorAll('.view').forEach(view => {
+        view.addEventListener('scroll', scheduleResumeStateSave, { passive: true });
+      });
+      window.addEventListener('pagehide', saveResumeState);
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') saveResumeState();
+      });
+      window.addEventListener('popstate', event => {
+        applyAppHistoryState(event.state);
       });
 
       // 詳細画面 戻る
       document.getElementById('btn-detail-back').addEventListener('click', () => {
         const lastView = localStorage.getItem('lastHomeView') || 'home';
-        navigateTo(lastView);
+        goBackWithinApp(lastView);
       });
 
       // 詳細画面 お気に入り登録
@@ -3552,7 +3736,11 @@
               
               setTimeout(() => {
                 cleanupStyles();
-                navigateTo(targetViewId);
+                if (transitionType === 'uncover' && currentViewId === 'detail') {
+                  goBackWithinApp(targetViewId);
+                } else {
+                  navigateTo(targetViewId);
+                }
               }, 350);
             } else {
               // キャンセル（スナップバック）時の元の位置に戻す
@@ -3609,17 +3797,18 @@
       const userIdHash = localStorage.getItem('userIdHash');
 
       if (!accessCodeVerified) {
-        navigateTo('access-code');
+        navigateTo('access-code', { historyMode: 'replace' });
       } else if (!userIdHash) {
-        navigateTo('login');
+        navigateTo('login', { historyMode: 'replace' });
       } else {
-        const lastView = localStorage.getItem('currentView') || 'home';
-        // 不正な画面にリダイレクトされないように制限
-        if (['access-code', 'login', 'detail', 'admin'].includes(lastView)) {
-          navigateTo('home');
-        } else {
-          navigateTo(lastView);
-        }
+        const storedResumeState = prepareResumeStateAtStartup();
+        const lastView = storedResumeState ? storedResumeState.view : (localStorage.getItem('currentView') || 'home');
+        // 認証画面・管理画面は復元せず、通常の閲覧画面と詳細画面だけを復元する。
+        const canResumeDetail = storedResumeState && storedResumeState.detailRecipeId;
+        // 詳細を復元する時も、履歴の土台はホームに置く。Androidの戻るジェスチャーでアプリを閉じず一覧へ戻すため。
+        if (!RESUMABLE_VIEWS.has(lastView) || (lastView === 'detail' && !canResumeDetail)) navigateTo('home', { historyMode: 'replace' });
+        else if (lastView === 'detail') navigateTo('home', { historyMode: 'replace' });
+        else navigateTo(lastView, { historyMode: 'replace' });
         void loadBootstrap({ mode: 'stale-while-revalidate' });
       }
     }
