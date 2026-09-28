@@ -4,20 +4,20 @@
   "remote": "kns3k8642-jpg/gas-pwa-wrapper",
   "branch": "master",
   "auth_state": "ready",
-  "milestone": "implementation_complete",
+  "milestone": "verified",
   "push_policy": "ask_each_milestone",
-  "last_commit": "23017a6 2026-08-26 implementation_complete",
-  "last_push": "c8d14df confirmed on origin/master and GitHub Pages 2026-08-26",
+  "last_commit": "a4081a9 2026-09-28 implementation_complete",
+  "last_push": "a4081a9 confirmed on origin/master and GitHub Pages 2026-09-28",
   "last_gate": {
-    "at": "2026-08-26T00:00:00+09:00",
+    "at": "2026-09-28T10:08:00+09:00",
     "diff_summary": [
-      "docs/recipe.html / clear all transient swipe styles on each view transition and hand detail edge back to Android history",
-      "docs/recipe.html / extract concatenated ingredient aliases and require all extracted search terms (AND)",
+      "docs/recipe.html / show a source button only for validated http/https recipe URLs",
+      "STATUS.md, plans and Zeus log / record tag policy, database verification and release status",
       "docs/gas/Code.js / pre-existing change remains excluded from this release"
     ],
-    "secret_scan": "pass: repository scanner unavailable; fallback credential-marker scan clean",
+    "secret_scan": "pass: zeus-git secret-scan.ps1 clean",
     "scope_scan": "pass: no raw/web changes and no files over 50MB",
-    "test_result": "ingredient AND and alias search test passed; navigation reset contract passed; JavaScript syntax check passed"
+    "test_result": "JavaScript VM compile and safe URL tests passed; published recipe.html returned HTTP 200 with source-link code"
   },
   "last_error": null
 }
