@@ -1144,6 +1144,11 @@
       <p id="detail-recipe-summary"
         style="color: var(--text-muted); font-size: 0.95rem; line-height: 1.5; margin-bottom: 20px;">説明文が入ります。</p>
 
+      <a id="detail-source-link" class="btn btn-outline" href="#" target="_blank" rel="noopener noreferrer"
+        style="display: none; align-items: center; justify-content: center; gap: 8px; width: 100%; margin: -4px 0 20px;">
+        ↗ 元レシピを開く
+      </a>
+
       <div class="section-divider"></div>
 
       <!-- 分量倍率 -->
@@ -2444,6 +2449,16 @@
       document.getElementById('detail-recipe-summary').textContent = recipe.summary || '';
       document.getElementById('detail-servings').textContent = recipe.servings || '2人分';
 
+      const sourceLink = document.getElementById('detail-source-link');
+      const sourceUrl = getSafeExternalUrl(recipe.source);
+      if (sourceUrl) {
+        sourceLink.href = sourceUrl;
+        sourceLink.style.display = 'flex';
+      } else {
+        sourceLink.removeAttribute('href');
+        sourceLink.style.display = 'none';
+      }
+
       const tagsContainer = document.getElementById('detail-tags-container');
       tagsContainer.innerHTML = '';
 
@@ -2520,6 +2535,15 @@
       renderSteps();
       restoreScrollPosition('detail', restoreScrollTop);
       saveResumeState();
+    }
+
+    function getSafeExternalUrl(value) {
+      try {
+        const url = new URL(String(value || ''));
+        return ['https:', 'http:'].includes(url.protocol) ? url.href : '';
+      } catch (e) {
+        return '';
+      }
     }
 
     function renderProteinArrangements(recipe) {
