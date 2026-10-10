@@ -2143,6 +2143,21 @@
               recentViews: userState.recentViews,
               recentSearches: userState.recentSearches
             });
+          } else if (action === 'registerUserState') {
+            if (userState.userIdHash !== request.userIdHash) {
+              userState = {
+                userIdHash: request.userIdHash,
+                displayName: request.payload.displayName || '',
+                favoriteRecipeIds: [],
+                favoriteEquipmentIds: [],
+                defaultFilters: {},
+                recentViews: [],
+                recentSearches: []
+              };
+            } else {
+              userState.displayName = request.payload.displayName || userState.displayName;
+            }
+            resolve({ ...userState });
           } else if (action === 'saveUserState') {
             // ローカルで同期
             userState = { ...userState, ...request.payload };
@@ -3533,24 +3548,21 @@
         }
 
         const hash = await hashUserKey(key);
+        const previousUserState = userState;
         localStorage.setItem('userKey', key);
         localStorage.setItem('userIdHash', hash);
 
-        userState.userIdHash = hash;
-        userState.displayName = key;
-
-        // サーバーに登録
+        // 既存プロフィールがあれば保持し、新規の場合だけサーバー側で空状態を作成
         try {
-          await callAPI('saveUserState', {
-            displayName: key,
-            favoriteRecipeIds: [],
-            favoriteEquipmentIds: [],
-            defaultFilters: {},
-            recentViews: [],
-            recentSearches: []
-          });
+          const registeredState = await callAPI('registerUserState', { displayName: key });
+          userState = { ...userState, ...registeredState };
         } catch (e) {
-          console.warn('Could not register user state with server immediately', e);
+          userState = previousUserState;
+          localStorage.removeItem('userKey');
+          localStorage.removeItem('userIdHash');
+          errDiv.textContent = '保存済みデータを確認できませんでした。通信状態を確認して、もう一度お試しください。';
+          console.warn('Could not safely register user state with server', e);
+          return;
         }
 
         await saveLocalData('userState', userState).catch(err => console.warn('Could not save local user state', err));

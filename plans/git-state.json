@@ -4,20 +4,20 @@
   "remote": "kns3k8642-jpg/gas-pwa-wrapper",
   "branch": "master",
   "auth_state": "ready",
-  "milestone": "verified",
+  "milestone": "implementation_complete",
   "push_policy": "ask_each_milestone",
   "last_commit": "52ffef7 2026-09-28 implementation_complete",
   "last_push": "52ffef7 confirmed on origin/master and GitHub Pages 2026-09-28",
   "last_gate": {
-    "at": "2026-09-28T16:21:51+09:00",
+    "at": "2026-10-10T10:14:55.4936834+09:00",
     "diff_summary": [
-      "docs/recipe.html / extend the multiplier selector to 10x and add Markdown recipe copying with safe source URLs",
-      "STATUS.md, plans and Zeus logs / record multiplier, URL contract and copy-feature verification",
-      "docs/gas/Code.js / pre-existing change remains excluded from this release"
+      "docs/recipe.html / registration retrieves or safely initializes existing profile; failure stops login",
+      "docs/gas/Code.js / registerUserState preserves existing arrays and serializes creation with ScriptLock",
+      "STATUS.md, _zeus_log and plans / record verified GAS v17 deployment and publish handoff"
     ],
-    "secret_scan": "pass: zeus-git secret-scan.ps1 clean",
+    "secret_scan": "pass: secret-scan.ps1 reported SECRET_SCAN_OK",
     "scope_scan": "pass: no raw/web changes and no files over 50MB",
-    "test_result": "JavaScript VM compile, 40-option multiplier bounds, Markdown copy contract and safe URL tests passed; published recipe.html returned HTTP 200 with copy and 10x code"
+    "test_result": "not run: no tests requested; public endpoint behavior check remains after Pages publication"
   },
   "last_error": null
 }

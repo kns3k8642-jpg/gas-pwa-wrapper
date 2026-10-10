@@ -50,3 +50,12 @@
 - 出典: 有効な `http`/`https` の `source` だけを `## 出典` として含める。URLなし・無効URLはコピー内容にも表示しない。
 - 検証: クリップボードAPIとフォールバック、構文コンパイル、Markdown契約テストを実施。材料・手順・URLが含まれ、URLなし・危険URLが除外されることを確認。
 - Git: `52ffef7` を `master` へpush済み。GitHub Pagesの `recipe.html` がHTTP 200でMarkdownコピー機能と10.0倍選択肢を返すことを確認済み。
+
+## 2026-10-10 ニックネーム再登録時のユーザー状態保護
+
+- 状態: GAS版17を既存WebアプリURLへ反映済み。GitHub Pagesは今回の差分だけをmasterへ反映する段階。
+- 原因: 別ブラウザで同じニックネームを登録すると、既存プロフィールを読まず空状態を保存していた。
+- 修正: 登録専用の取得・新規作成APIを追加。既存状態を保持し、同時登録はGAS ScriptLockで直列化。登録APIが失敗した時はログインを中断する。
+- 対象: `docs/recipe.html`、`docs/gas/Code.js`、本記録。
+- 公開先: GitHub Pages `master:/docs`、Apps Script「レシピ検索アプリ」の既存Webアプリデプロイ。
+- 検証: GASのデプロイ成功画面で版17と既存デプロイIDを確認。テスト未実施。Pages公開後にHTML取得を確認する。

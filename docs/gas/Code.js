@@ -50,6 +50,9 @@ function doPost(e) {
       case 'getUserState':
         data = getUserStateData(userIdHash);
         break;
+      case 'registerUserState':
+        data = registerUserState(userIdHash, payload.displayName);
+        break;
       case 'saveUserState':
         data = saveUserStateData(userIdHash, payload);
         break;
@@ -244,6 +247,42 @@ function getUserStateData(userIdHash) {
     recentViews: [],
     recentSearches: []
   };
+}
+
+// ニックネーム登録は既存状態を消さず、存在しない場合だけ空の状態を作る。
+function registerUserState(userIdHash, displayName) {
+  if (!userIdHash) throw new Error('userIdHash is required');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('UserState');
+    const states = getSheetDataAsObjects('UserState');
+    const rowIndex = states.findIndex(s => s.userIdHash === userIdHash);
+    const now = new Date();
+
+    if (rowIndex >= 0) {
+      const row = rowIndex + 2;
+      const existingName = states[rowIndex].displayName || '';
+      sheet.getRange(row, 2).setValue(displayName || existingName);
+      sheet.getRange(row, 8).setValue(now);
+    } else {
+      sheet.appendRow([
+        userIdHash,
+        displayName || '',
+        '[]',
+        '[]',
+        '{}',
+        '[]',
+        '[]',
+        now,
+        now,
+        now
+      ]);
+    }
+    return getUserStateData(userIdHash);
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 // ユーザー状態の保存
