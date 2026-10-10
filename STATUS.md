@@ -53,9 +53,10 @@
 
 ## 2026-10-10 ニックネーム再登録時のユーザー状態保護
 
-- 状態: GAS版17を既存WebアプリURLへ反映済み。GitHub Pagesは今回の差分だけをmasterへ反映する段階。
+- 状態: 公開完了。GAS版17とGitHub PagesのHTMLに今回の修正が反映済み。
 - 原因: 別ブラウザで同じニックネームを登録すると、既存プロフィールを読まず空状態を保存していた。
 - 修正: 登録専用の取得・新規作成APIを追加。既存状態を保持し、同時登録はGAS ScriptLockで直列化。登録APIが失敗した時はログインを中断する。
 - 対象: `docs/recipe.html`、`docs/gas/Code.js`、本記録。
 - 公開先: GitHub Pages `master:/docs`、Apps Script「レシピ検索アプリ」の既存Webアプリデプロイ。
-- 検証: GASのデプロイ成功画面で版17と既存デプロイIDを確認。テスト未実施。Pages公開後にHTML取得を確認する。
+- 検証: GASのデプロイ成功画面で版17と既存デプロイIDを確認。PagesはHTTP 200、HTML内の`registerUserState`を確認。動作テストは未実施。
+- Git: `b3371b2`を`master`へpush済み。Pagesビルド成功を確認。
