@@ -2938,7 +2938,8 @@
     // キャッシュ内容を画面状態へ反映（サーバー通信は行わない）
     function commitCachedState(cached) {
       recipesState = cached.recipes;
-      equipmentMaster = cached.equipment;
+      equipmentMaster = normalizeEquipmentMaster(cached.equipment);
+      discardInvalidEquipmentFilters();
       initFilterOverlayUI({ categories: cached.categories, genres: cached.genres, tags: cached.tags });
       if (cached.localUser) {
         userState = cached.localUser;
@@ -2948,7 +2949,8 @@
     // サーバー応答を画面状態へ反映。getUserStateが失敗した場合はローカルuserStateを維持する
     function commitServerState(data, serverState) {
       recipesState = data.recipes || [];
-      equipmentMaster = data.equipment || [];
+      equipmentMaster = normalizeEquipmentMaster(data.equipment);
+      discardInvalidEquipmentFilters();
       initFilterOverlayUI(data);
       if (serverState) {
         userState = { ...userState, ...serverState };
@@ -2957,10 +2959,30 @@
 
     // 調理機器マスタなどのメタデータをlocalStorageへ保持
     function saveBootstrapMeta(data) {
-      localStorage.setItem('equipmentMaster', JSON.stringify(data.equipment || []));
+      localStorage.setItem('equipmentMaster', JSON.stringify(normalizeEquipmentMaster(data.equipment)));
       localStorage.setItem('categories', JSON.stringify(data.categories || []));
       localStorage.setItem('genres', JSON.stringify(data.genres || []));
       localStorage.setItem('tags', JSON.stringify(data.tags || []));
+    }
+
+    // Apps Scriptのシート見出しに余分な空白が混ざっても、機器IDを失わない。
+    function normalizeEquipmentMaster(records) {
+      if (!Array.isArray(records)) return [];
+      return records.map(record => {
+        if (!record || typeof record !== 'object') return null;
+        const normalized = {};
+        Object.entries(record).forEach(([key, value]) => {
+          const normalizedKey = String(key).trim();
+          if (normalizedKey && normalized[normalizedKey] === undefined) normalized[normalizedKey] = value;
+        });
+        normalized.equipmentId = String(normalized.equipmentId || '').trim();
+        return normalized;
+      }).filter(equipment => equipment && equipment.equipmentId && equipment.name);
+    }
+
+    function discardInvalidEquipmentFilters() {
+      const validIds = new Set(equipmentMaster.map(equipment => equipment.equipmentId));
+      activeFilters.equipmentIds = (activeFilters.equipmentIds || []).filter(id => validIds.has(id));
     }
 
     // フィルタボトムシート・ホームカテゴリピルの両方をactiveFiltersへ同期する
@@ -2979,6 +3001,7 @@
       if (resumeState) return;
       if (userState.defaultFilters && Object.keys(userState.defaultFilters).length > 0) {
         activeFilters = { ...activeFilters, ...userState.defaultFilters };
+        discardInvalidEquipmentFilters();
         syncFilterUIFromState();
       }
     }
