@@ -6,18 +6,18 @@
   "auth_state": "ready",
   "milestone": "verified",
   "push_policy": "ask_each_milestone",
-  "last_commit": "b3371b2 2026-10-10 implementation_complete",
-  "last_push": "b3371b2 confirmed on origin/master and GitHub Pages 2026-10-10; Apps Script web app updated to version 17",
+  "last_commit": "bb148bb 2026-10-17 implementation_complete",
+  "last_push": "bb148bb confirmed on master; Pages built and live UI verified 2026-10-17",
   "last_gate": {
-    "at": "2026-10-10T10:16:10.7932883+09:00",
+    "at": "2026-10-17T11:31:56.1126421+09:00",
     "diff_summary": [
-      "docs/recipe.html / preserve server-side profile state during nickname registration",
-      "docs/gas/Code.js / lock-protected registration API published as Apps Script version 17",
-      "STATUS.md, plans and Zeus log / record GitHub Pages build and public HTML readback"
+      "docs/recipe.html: normalize appliance master and discard invalid cached/default selections",
+      "STATUS, plans, Zeus log: record local and public UI verification",
+      "Original checkout pre-existing GAS and document changes preserved"
     ],
-    "secret_scan": "pass: secret-scan.ps1 reported SECRET_SCAN_OK",
-    "scope_scan": "pass: no raw/web changes and no files over 50MB",
-    "test_result": "public Pages HTML HTTP 200 and contains registerUserState; functional tests not run"
+    "secret_scan": "pass: SECRET_SCAN_OK",
+    "scope_scan": "pass: no raw/web changes; no files over 50MB",
+    "test_result": "Inline syntax and malformed master/cached-ID checks passed; local UI single/multiple/reopen/reset passed; public UI Hotcook 136, Raku 67, both 203, reset 1497, reload selection retained; HTTP 200 and Pages built"
   },
   "last_error": null
 }
